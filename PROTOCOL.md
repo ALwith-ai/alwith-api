@@ -162,7 +162,7 @@ Runtime 自己的 `code` 只有三个：
 - `launch.engine` 查引擎表；`cwd`、`args`、`env` 追加在引擎表之上。
 - `launch.provider` / `model` / `connection` 只是标签，Runtime 原样放进 `agents` 和 `attachSession` 的结果里，不解释。
 
-#### Runtime 原生供应商选择
+#### 可选供应商启动适配
 
 原始 launch 保留，适合自带配置的 CLI／ACP 适配器。引擎名不限制为 alwith 或 dsh；供应商启动使用引擎表声明的适配方式：
 
@@ -170,18 +170,18 @@ Runtime 自己的 `code` 只有三个：
 {"agentId":"chat-1","launch":{"providerConfig":{"engine":"alwith","providerId":"deepseek","modelId":"chosen-model"},"overrides":{"args":[],"env":{},"envRemove":[]}}}
 ```
 
-Runtime 从部署者指定的 `ALWITH_SETTINGS_PATH` 读取 `ai.providerConfigs`，解析密钥并调用 CLI 适配器。此能力不要求开启 fs/store/QA；不重写 CLI 内部的模型、工具、Skills、MCP 实现。原始 launch 的标签只是标签，providerConfig 则会实际影响启动环境。
+部署者通过 `ALWITH_RUNTIME_LAUNCH_RESOLVER` 选择已安装模块。Runtime 将 `providerConfig` 交给该模块的私有管道解析，再由 Runtime 自己启动 Agent。官方 `alwith-services` 模块从 `ALWITH_SETTINGS_PATH` 读取 `ai.providerConfigs` 并复用 CLI 适配库；不要求开启 fs/store/QA，不重写 CLI 的模型、工具、Skills、MCP。没有适配模块时原始 launch 仍可独立工作，providerConfig 则明确报错。Runtime 的编译不依赖这些模块或客户端 SDK。
 
 - `providerConfig` 支持 engine、providerId、modelId、fastModelId、baseUrl、compatOverride、maxOutputTokens、modelOptions、supportsEffort、workspaceRoot、harnessPreset、dshProviderRoute；后两项仅对应适配器使用。
 - 顶层只能另带 `overrides`，不能混入原始 launch 字段。overrides 只允许 args、env、envRemove、cwd；args 追加，env 覆盖，cwd 有值时覆盖。配置了授权根时，cwd 同样接受路径校验。
 - 原始 launch 也支持 `envRemove: string[]`。应用顺序为引擎默认环境 → envRemove → 显式 env，确保切换供应商不会继承已要求删除的变量。
 - 采用 providerConfig 时，引擎表不要重复填写适配器提供的 `--acp` 或 dsh 入口参数。
-- `engines/probeCapabilities` 接受 providerId、modelId 和可选 baseUrl、compatOverride，返回能力探测结果；密钥只在 Runtime 内部解析，探测会实际请求供应商。
+- `engines/probeCapabilities` 由可选模块提供，接受 providerId、modelId 和可选 baseUrl、compatOverride；密钥在模块进程解析，探测会实际请求供应商。
 - 以上是受信任客户端能力，不构成多租户沙箱或平台账号鉴权。
 
 #### 引擎适配声明与发现
 
-引擎表条目的 `providerAdapter` 决定如何将供应商选择翻译为 CLI 参数与环境，不改变该 CLI 必须符合 Runtime 所支持 ACP 合同的要求。
+官方适配模块读取引擎表条目的 `providerAdapter`，将供应商选择翻译为 CLI 参数与环境；Runtime 不解释具体适配器种类。CLI 仍须符合 Runtime 支持的 ACP 合同。
 
 ```json
 {"company-cli":{"command":"/opt/company-agent","providerAdapter":{"kind":"environment","args":["--acp"],"env":{"COMPANY_TOKEN":"apiKey","COMPANY_MODEL":"modelId","COMPANY_URL":"baseUrl"},"envRemove":["OLD_TOKEN"]}}}
@@ -192,7 +192,9 @@ Runtime 从部署者指定的 `ALWITH_SETTINGS_PATH` 读取 `ai.providerConfigs`
 - 请求映射 apiKey 但未配置密钥时明确报错；其他可选字段缺失时删除对应环境变量，避免继承旧值。envRemove 先应用，显式 env 后应用。
 - `engines/capabilities` 返回 `{schemaVersion:1,engines:[{engine,providerAdapter}]}`，按引擎名排序，不含凭据；这是已配置适配方式，不是模型能力探测结果。
 
-#### 内置资源服务配置
+#### 可选模块的资源服务配置
+
+以下配置由独立的 `alwith-services` 模块解释，不是 Runtime 编译依赖。模块清单的 `routes` 声明对外命名空间，Runtime 只转发调用及连接标识。客户端原有方法名和服务事件格式不变。
 
 部署环境变量 `ALWITH_RUNTIME_SERVICES` 为 JSON，例如：
 
