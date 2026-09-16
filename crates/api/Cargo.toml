@@ -1,0 +1,19 @@
+[package]
+name = "alwith-api"
+description = "ALwith from the app side: types of the alwith-runtime-v1 frame protocol, and (feature `client`) a Rust client over a Runtime child's stdio or any byte stream"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[features]
+default = ["client"]
+client = ["dep:log", "dep:tokio"]
+
+[dependencies]
+log = { version = "0.4", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+specta = { version = "=2.0.0-rc.24", features = ["derive", "serde_json"] }
+# 只为 `#[specta(type = Unknown)]`:JSON 值在 TS 侧就是 unknown,不要被展开成 serde_json 的内部枚举。
+specta-typescript = "=0.0.11"
+tokio = { version = "1", features = ["full"], optional = true }
