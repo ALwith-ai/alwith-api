@@ -10,10 +10,11 @@
         "@types/bun": "^1",
         "@types/node": "^24",
         "typescript": "^5",
+        "typescript-compiler": "npm:typescript@5.9.3",
       },
     },
-    "packages/runtime-client": {
-      "name": "@alwith/runtime-client",
+    "packages/api": {
+      "name": "@alwith/api",
       "version": "0.1.0",
       "peerDependencies": {
         "@agentclientprotocol/sdk": ">=1.4.0",
@@ -23,20 +24,11 @@
         "@tauri-apps/api",
       ],
     },
-    "packages/session": {
-      "name": "@alwith/session",
-      "version": "0.1.0",
-      "peerDependencies": {
-        "@agentclientprotocol/sdk": ">=1.4.0",
-      },
-    },
   },
   "packages": {
     "@agentclientprotocol/sdk": ["@agentclientprotocol/sdk@1.4.0", "", { "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" } }, "sha512-/eufudw+aFY1LKLolT6yFE6UMmYRl7fMJ/DEONSIyR6wI3slHWITBsANRGqXEY8FRzqUxwh7QEaGiZHcJPVThg=="],
 
-    "@alwith/runtime-client": ["@alwith/runtime-client@workspace:packages/runtime-client"],
-
-    "@alwith/session": ["@alwith/session@workspace:packages/session"],
+    "@alwith/api": ["@alwith/api@workspace:packages/api"],
 
     "@tauri-apps/api": ["@tauri-apps/api@2.11.1", "", {}, "sha512-M2FPuYND2m+wh5hfW9ZpSdxMPdEJovPBWwoHJmwUpysTYNHaOkVFN419m/K0LIgjb/7KU2vBgsUepJWugQCvAA=="],
 
@@ -47,6 +39,8 @@
     "bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
 
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+
+    "typescript-compiler": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "undici-types": ["undici-types@7.18.2", "", {}, "sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w=="],
 

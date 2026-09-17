@@ -46,3 +46,13 @@ agents.onExit(agent => …)                                       // 进程没�
 `Agents` 只要求端口有 `AgentPort` 那几条(`RuntimeClient` 的子集),应用自己的宿主端口(比如 Tauri 中转)也能用。
 
 协议参考是仓库根的 [PROTOCOL.md](../../PROTOCOL.md);这个包是它的应用侧。
+
+## License and redistribution
+
+See [LICENSE](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md).
+ALwith-owned code is proprietary, not open source. You may build, customize, host,
+charge for and distribute your own WorkBuddy applications under the included
+license, without per-application registration. This does not grant hosted-service
+access or rights to separately distributed Rust libraries or Runtime binaries.
+The npm artifact includes compiled/minified JS, declarations and necessary assets,
+not the private TS/TSX implementation or source maps. Minification is not encryption.

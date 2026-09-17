@@ -1,2 +1,6 @@
 target/
 node_modules/
+
+# Generated npm artifacts
+**/dist/
+*.tgz
