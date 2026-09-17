@@ -1,15 +1,18 @@
 import type { RuntimeClient } from "./runtime-client"
 import { RuntimeErrorCode } from "./types"
 import type {
-  RuntimeAgentInfo,
-  RuntimeAttachInfo,
-    RuntimeEvent,
-  RuntimeExitPayload,
+  JournalPosition,
   RuntimeAcpAgentRequest,
   RuntimeAcpNotification,
+  RuntimeAgentInfo,
+  RuntimeAttachInfo,
+  RuntimeEvent,
+  RuntimeExitPayload,
+  RuntimeGap,
   RuntimeInboundPayload,
-  RuntimeResponseError,
+  RuntimeOutbound,
   RuntimePromptResult,
+  RuntimeResponseError,
   RuntimeSessionResult,
   RuntimeStderrPayload,
   SessionEventFrame,
@@ -28,6 +31,23 @@ type PendingRequest = {
   resolve: (result: unknown) => void
   reject: (error: Error) => void
 }
+
+/** A live frame held back while its session is being refilled from the journal. */
+type Parked = { sequence: number; deliver: () => void }
+
+/** What the client knows about one session's place in the journal. */
+type SessionCursor = {
+  agentId: string
+  /** The last journal sequence delivered to handlers; null until the first stamped frame. */
+  last: number | null
+  refilling: boolean
+  parked: Parked[]
+}
+
+/** `sessionEvents` page size while refilling; the Runtime caps a page at 2000. */
+const REFILL_PAGE = 2000
+/** How many extra refill rounds to run when frames keep arriving mid-refill before reporting a gap. */
+const REFILL_ROUNDS = 2
 
 /** A request failed: the response's `error` as sent (`code`, `data`), plus the method it was for. */
 export class RuntimeRequestError extends Error {
@@ -58,6 +78,13 @@ export class RuntimeRequestError extends Error {
  * incoming frame to `receive`) and `write` (one frame out). Everything else, request ids,
  * event fan-out, host extension events, reconnect bookkeeping, lives here, so the WebSocket
  * port and a host's stdio port share one envelope.
+ *
+ * Delivery promise: for every session, journaled frames (`acpNotification`, `acpAgentRequest`,
+ * `outbound` carrying `sessionId` + `sequence`) reach handlers exactly once and in journal order.
+ * The Runtime drops events when a stdio host falls behind (and tells us with `lagged`) and cuts
+ * slow WebSocket clients (we reconnect); either way this client notices the hole by sequence and
+ * refills it from `sessionEvents` before delivering what came after. What the journal no longer
+ * has is reported through `onGap` instead of being papered over.
  */
 export abstract class FrameRuntimeClient<Launch = unknown> implements RuntimeClient<Launch> {
   private nextRequestId = 1
@@ -68,8 +95,11 @@ export abstract class FrameRuntimeClient<Launch = unknown> implements RuntimeCli
   private readonly runStateHandlers = new Set<(sessions: SessionRunState[]) => void>()
   private readonly acpNotificationHandlers = new Set<(notification: RuntimeAcpNotification) => void>()
   private readonly acpAgentRequestHandlers = new Set<(request: RuntimeAcpAgentRequest) => void>()
+  private readonly outboundHandlers = new Set<(line: RuntimeOutbound) => void>()
+  private readonly gapHandlers = new Set<(gap: RuntimeGap) => void>()
   private readonly eventHandlers = new Map<string, Set<(event: Record<string, unknown>) => void>>()
   private readonly reconnectHandlers = new Set<() => void>()
+  private readonly cursors = new Map<string, SessionCursor>()
 
   /** Makes `write` possible and starts delivering frames to `receive`. Idempotent. */
   protected abstract connectTransport(): Promise<void>
@@ -214,6 +244,19 @@ export abstract class FrameRuntimeClient<Launch = unknown> implements RuntimeCli
     return () => this.runStateHandlers.delete(handler)
   }
 
+  /** Lines any connection `send`s to an agent (what the observation side sees as "who said what"). */
+  async onOutbound(handler: (line: RuntimeOutbound) => void): Promise<() => void> {
+    this.outboundHandlers.add(handler)
+    await this.connectOrRetry()
+    return () => this.outboundHandlers.delete(handler)
+  }
+
+  /** Frames that could not be refilled (the journal had dropped them): reload that session. */
+  onGap(handler: (gap: RuntimeGap) => void): () => void {
+    this.gapHandlers.add(handler)
+    return () => this.gapHandlers.delete(handler)
+  }
+
   /** Host events beyond the core protocol, by their `type`. */
   onEvent(type: string, handler: (event: Record<string, unknown>) => void): () => void {
     let handlers = this.eventHandlers.get(type)
@@ -278,6 +321,7 @@ export abstract class FrameRuntimeClient<Launch = unknown> implements RuntimeCli
       this.runStateHandlers.size > 0 ||
       this.acpNotificationHandlers.size > 0 ||
       this.acpAgentRequestHandlers.size > 0 ||
+      this.outboundHandlers.size > 0 ||
       this.eventHandlers.size > 0
     )
   }
@@ -288,7 +332,7 @@ export abstract class FrameRuntimeClient<Launch = unknown> implements RuntimeCli
     this.pending.clear()
   }
 
-  /** After a reconnect: run-state snapshot first, then host `onReconnect` handlers. */
+  /** After a reconnect: run-state snapshot first, refill every session we were following, then host `onReconnect` handlers. */
   protected restoreSubscriptions(): void {
     if (this.runStateHandlers.size > 0) {
       void this.runStates()
@@ -297,6 +341,7 @@ export abstract class FrameRuntimeClient<Launch = unknown> implements RuntimeCli
         })
         .catch(() => undefined)
     }
+    this.refillAll()
     for (const handler of this.reconnectHandlers) handler()
   }
 
@@ -317,13 +362,41 @@ export abstract class FrameRuntimeClient<Launch = unknown> implements RuntimeCli
         case "runStates":
           for (const handler of this.runStateHandlers) handler(message.sessions)
           break
-        case "acpNotification":
-          for (const handler of this.acpNotificationHandlers)
-            handler({ agentId: message.agentId, method: message.method, params: message.params })
+        case "acpNotification": {
+          const event: RuntimeAcpNotification = {
+            agentId: message.agentId,
+            method: message.method,
+            params: message.params,
+            ...journalPosition(message)
+          }
+          this.sequenced(event, () => {
+            for (const handler of this.acpNotificationHandlers) handler(event)
+          })
           break
-        case "acpAgentRequest":
-          for (const handler of this.acpAgentRequestHandlers)
-            handler({ agentId: message.agentId, id: message.id, method: message.method, params: message.params })
+        }
+        case "acpAgentRequest": {
+          const event: RuntimeAcpAgentRequest = {
+            agentId: message.agentId,
+            id: message.id,
+            method: message.method,
+            params: message.params,
+            ...journalPosition(message)
+          }
+          this.sequenced(event, () => {
+            for (const handler of this.acpAgentRequestHandlers) handler(event)
+          })
+          break
+        }
+        case "outbound": {
+          const event: RuntimeOutbound = { agentId: message.agentId, line: message.line, ...journalPosition(message) }
+          this.sequenced(event, () => {
+            for (const handler of this.outboundHandlers) handler(event)
+          })
+          break
+        }
+        case "lagged":
+          // The Runtime dropped events for this connection: refill every session we follow.
+          this.refillAll()
           break
         default:
           break
@@ -338,4 +411,150 @@ export abstract class FrameRuntimeClient<Launch = unknown> implements RuntimeCli
     if (message.error) pending.reject(new RuntimeRequestError(pending.method, message.error))
     else pending.resolve(message.result)
   }
+
+  // ---- Sequencing: exactly once, in journal order, per session. ----
+
+  /** Deliver now, park behind a running refill, drop as duplicate, or open a refill for the hole before it. */
+  private sequenced(event: JournalPosition & { agentId: string }, deliver: () => void): void {
+    if (typeof event.sessionId !== "string" || typeof event.sequence !== "number") {
+      deliver()
+      return
+    }
+    const cursor = this.cursorFor(event.sessionId, event.agentId)
+    if (cursor.refilling) {
+      cursor.parked.push({ sequence: event.sequence, deliver })
+      return
+    }
+    switch (verdict(cursor.last, event.sequence)) {
+      case "deliver":
+        cursor.last = event.sequence
+        deliver()
+        return
+      case "duplicate":
+        return
+      case "gap":
+        cursor.parked.push({ sequence: event.sequence, deliver })
+        void this.refill(event.sessionId, cursor, 0)
+    }
+  }
+
+  private cursorFor(sessionId: string, agentId: string): SessionCursor {
+    let cursor = this.cursors.get(sessionId)
+    if (!cursor) {
+      cursor = { agentId, last: null, refilling: false, parked: [] }
+      this.cursors.set(sessionId, cursor)
+    }
+    cursor.agentId = agentId
+    return cursor
+  }
+
+  /** Sessions we are following (have a last sequence for) get refilled from where we stopped. */
+  private refillAll(): void {
+    for (const [sessionId, cursor] of this.cursors) {
+      if (cursor.last !== null && !cursor.refilling) void this.refill(sessionId, cursor, 0)
+    }
+  }
+
+  /**
+   * Pull `sessionEvents` after the last delivered sequence and hand them out in order, then the
+   * frames that arrived meanwhile. A hole the journal cannot fill is reported once as a gap.
+   */
+  private async refill(sessionId: string, cursor: SessionCursor, round: number): Promise<void> {
+    cursor.refilling = true
+    let after = cursor.last ?? -1
+    let first = true
+    try {
+      for (;;) {
+        const frames = await this.sessionEvents(sessionId, after < 0 ? undefined : after, REFILL_PAGE)
+        if (frames.length === 0) break
+        if (first && frames[0].sequence > after + 1) this.emitGap(sessionId, after + 1, frames[0].sequence - 1)
+        first = false
+        for (const frame of frames) {
+          if (frame.sequence <= after) continue
+          this.deliverJournaled(sessionId, cursor.agentId, frame)
+          after = frame.sequence
+          cursor.last = after
+        }
+        if (frames.length < REFILL_PAGE) break
+      }
+    } catch {
+      // The transport is gone; the reconnect path refills again. Hand out what we parked meanwhile.
+    }
+    const parked = cursor.parked.sort((a, b) => a.sequence - b.sequence)
+    cursor.parked = []
+    const stillMissing: Parked[] = []
+    for (const item of parked) {
+      switch (verdict(cursor.last, item.sequence)) {
+        case "duplicate":
+          continue
+        case "gap":
+          if (round < REFILL_ROUNDS) {
+            stillMissing.push(item)
+            continue
+          }
+          this.emitGap(sessionId, (cursor.last ?? -1) + 1, item.sequence - 1)
+          break
+        case "deliver":
+          break
+      }
+      cursor.last = item.sequence
+      item.deliver()
+    }
+    if (stillMissing.length > 0) {
+      // A frame landed between our page and the live stream: one more round from the new edge.
+      cursor.parked = stillMissing
+      await this.refill(sessionId, cursor, round + 1)
+      return
+    }
+    cursor.refilling = false
+  }
+
+  /** A journal frame, delivered the way the live event for it would have been. */
+  private deliverJournaled(sessionId: string, agentId: string, frame: SessionEventFrame): void {
+    const position = { sessionId, sequence: frame.sequence }
+    if (frame.direction === "out") {
+      const event: RuntimeOutbound = { agentId, line: frame.line, ...position }
+      for (const handler of this.outboundHandlers) handler(event)
+      return
+    }
+    let value: { method?: unknown; id?: unknown; params?: unknown }
+    try {
+      value = JSON.parse(frame.line) as typeof value
+    } catch {
+      return
+    }
+    if (typeof value.method !== "string") return // a response to our own request: nothing to replay
+    if (value.id !== undefined && value.id !== null) {
+      const event: RuntimeAcpAgentRequest = { agentId, id: value.id, method: value.method, params: value.params, ...position }
+      for (const handler of this.acpAgentRequestHandlers) handler(event)
+      return
+    }
+    const event: RuntimeAcpNotification = { agentId, method: value.method, params: value.params, ...position }
+    for (const handler of this.acpNotificationHandlers) handler(event)
+  }
+
+  private emitGap(sessionId: string, from: number, to: number): void {
+    const gap: RuntimeGap = { sessionId, from, to }
+    for (const handler of this.gapHandlers) handler(gap)
+  }
+}
+
+/** The stamp a live frame carries when the journal kept it; nothing otherwise. */
+function journalPosition(message: { sessionId?: unknown; sequence?: unknown }): JournalPosition {
+  return typeof message.sessionId === "string" && typeof message.sequence === "number"
+    ? { sessionId: message.sessionId, sequence: message.sequence }
+    : {}
+}
+
+/**
+ * Where a frame stands relative to the last one delivered: the next one (or the first we see) is
+ * delivered; sequence 0 after a higher number is the engine replaying history (a `resume` with
+ * `replayFrom` clears the journal) and is delivered too; anything at or below the last is a
+ * duplicate; anything further ahead means frames were dropped in between.
+ */
+function verdict(last: number | null, sequence: number): "deliver" | "duplicate" | "gap" {
+  if (last === null || sequence === last + 1) return "deliver"
+  if (sequence === 0 && last > 0) return "deliver"
+  if (sequence <= last) return "duplicate"
+  return "gap"
 }

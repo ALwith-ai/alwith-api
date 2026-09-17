@@ -104,19 +104,42 @@ export interface RuntimeAgentInfo {
 }
 
 /** Events the Runtime pushes on the socket, discriminated by `type`. */
+/** Where a live frame sits in the session journal: present only on frames the journal keeps
+ *  (`session/update`, `session/prompt`, `session/request_permission`); the same number
+ *  `sessionEvents` reports for that frame. The client uses it to notice dropped frames and refill. */
+export interface JournalPosition {
+  sessionId?: string
+  sequence?: number
+}
+
 /** An ACP notification the agent sent (`session/update` and friends), already split out of the frame. */
-export interface RuntimeAcpNotification {
+export interface RuntimeAcpNotification extends JournalPosition {
   agentId: string
   method: string
   params: unknown
 }
 
 /** An ACP request the agent sent (`session/request_permission`, `elicitation/create`, `fs/*`…); answer with `acpRespond` and the same `id`. */
-export interface RuntimeAcpAgentRequest {
+export interface RuntimeAcpAgentRequest extends JournalPosition {
   agentId: string
   id: unknown
   method: string
   params: unknown
+}
+
+/** A line some connection `send`s to the agent, shown to every connection. */
+export interface RuntimeOutbound extends JournalPosition {
+  agentId: string
+  line: string
+}
+
+/** Frames the client could not refill: the journal had already dropped `from..=to` for this
+ *  session. Nothing was delivered for that range; the app should reload the session rather than
+ *  render as if it were continuous. */
+export interface RuntimeGap {
+  sessionId: string
+  from: number
+  to: number
 }
 
 /** What `sessionNew` / `sessionLoad` / `sessionResume` / `sessionFork` give back: ACP's result, `sessionId` inside. */
@@ -136,7 +159,8 @@ export type RuntimeEvent =
   | ({ type: "inbound" } & RuntimeInboundPayload)
   | ({ type: "exit" } & RuntimeExitPayload)
   | ({ type: "stderr" } & RuntimeStderrPayload)
-  | ({ type: "outbound" } & { agentId: string; line: string })
+  | ({ type: "outbound" } & RuntimeOutbound)
+  | { type: "lagged"; dropped: number }
   | ({ type: "wire" } & { agentId: string; outbound: boolean; lines: string[] })
   | ({ type: "acpNotification" } & RuntimeAcpNotification)
   | ({ type: "acpAgentRequest" } & RuntimeAcpAgentRequest)

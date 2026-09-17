@@ -33,7 +33,9 @@ alwith-runtime --listen stdio://
 - 第一行 stdout：`{"type":"ready","transport":"stdio"}`，之后 stdin 进请求、stdout 出响应与事件，一行一帧。
 - stdout 上只有协议帧，日志一律 stderr。
 - stdin 到 EOF = 应用走了：Runtime 停模块、杀所有 agent、退出。
+- 发 `{"id":n,"method":"shutdown"}` 也是走：先收到回执 `{"id":n,"result":null}`，然后和 EOF 同一条收尾。起子进程的宿主不一定关得了自己那头的 stdin（Tauri 的 sidecar 就不能），所以给一个方法。**退出链**：先 `shutdown`、等进程结束（Runtime 内部给模块与 agent 2 秒收尾窗），超时再强杀——直接 SIGKILL Runtime 会让 agent 派生的进程组留活。
 - 没有 token：管道本身就是授权。这条连接的属主 id 固定是 `stdio`。
+- 写端是独立任务：应用不读 stdout 时堵住的只是事件，`shutdown`、EOF 照样立刻处理。
 - `--listen stdio://` 是默认值，可省略。
 
 ### 2.2 WebSocket（浏览器、远程）
@@ -230,7 +232,7 @@ fs、git、shell、qa 分别接受非空绝对路径 roots；store 独立接受�
 | 事件 | 含义 |
 | --- | --- |
 | `{"type":"inbound","agentId","lines":[...]}` | agent → 应用的 ACP 帧，按 16ms 合批 |
-| `{"type":"outbound","agentId","line"}` | 你 `send` 的那行，给别的连接看"谁发了什么" |
+| `{"type":"outbound","agentId","line","sessionId"?,"sequence"?}` | 你 `send` 的那行，给别的连接看"谁发了什么"。进了会话日志的帧带 `sessionId` 与 `sequence`（见 §6.4） |
 | `{"type":"wire","agentId","outbound":bool,"lines":[...]}` | 真正上线的原文，做协议诊断用 |
 | `{"type":"stderr","agentId","line"}` | agent 的 stderr 一行 |
 | `{"type":"exit","agentId"}` | 进程退出。同一个 agentId 同时只有一个进程，所以这条没有歧义：收到它就是"我这个 agent 没了"，也是可以再 `start` 的那一刻 |
@@ -257,8 +259,10 @@ fs、git、shell、qa 分别接受非空绝对路径 roots；store 独立接受�
 
 | 事件 | 含义 |
 | --- | --- |
-| `{"type":"acpNotification","agentId","method","params"}` | agent 发来的通知：`session/update` 的每一条内容、工具调用、状态 |
-| `{"type":"acpAgentRequest","agentId","id","method","params"}` | agent 发来的请求：`session/request_permission`、`elicitation/create`、`fs/*`…用 `acpRespond` 带同一个 `id` 回答 |
+| `{"type":"acpNotification","agentId","method","params","sessionId"?,"sequence"?}` | agent 发来的通知：`session/update` 的每一条内容、工具调用、状态 |
+| `{"type":"acpAgentRequest","agentId","id","method","params","sessionId"?,"sequence"?}` | agent 发来的请求：`session/request_permission`、`elicitation/create`、`fs/*`…用 `acpRespond` 带同一个 `id` 回答 |
+
+`sessionId` / `sequence` 只在进了会话日志的帧上有（`session/update`、`session/prompt`、`session/request_permission`），和 `sessionEvents` 里同一帧的序号相同：你靠它发现漏帧并补齐，见 §6.4。
 
 一轮对话的样子：
 
@@ -345,7 +349,13 @@ agent 发的 `session/request_permission` 是普通 ACP 请求，走 `lines` 事
 - `sessionReplay {sessionId}` → 全部帧原文（字符串数组），一次拿全。
 - `sessionLifecycle {sessionId}` → 只要生命周期帧：`session/prompt`、`session/request_permission`、`tool_call_update`，不含 AI 正文，agent 退出后仍可查。
 
-stdio 入口的事件队列（8192 条）满了会丢事件，腾出后先补一条 `{"type":"lagged","dropped":n}`，你据此用 `sessionEvents` 回放。ws 入口不丢，直接断开慢连接。
+**漏帧与补齐。** 事件是尽力投递：stdio 入口的事件队列（8192 条）满了会丢事件，腾出后先补一条 `{"type":"lagged","dropped":n}`；ws 入口不丢，直接断开慢连接（重连后同样要补）。补齐靠序号：进了日志的活事件带 `sessionId` 与 `sequence`，与 `sessionEvents` 里同一帧的序号相同，所以客户端要做的只有一件事——
+
+- 每条会话记住最后见到的 `sequence`；来了一帧序号跳过去了（`sequence > last + 1`），或者收到 `lagged`、或者重连之后，就 `sessionEvents {sessionId, afterSequence: last}` 把中间的帧拿回来，按序交给应用，再继续投活的那条。序号不大于 `last` 的是重复，丢掉；序号从 0 重来是引擎重放了历史（带 `replayFrom` 的 resume 会清日志），照单全收。
+- 日志按 16MB 只留后半段：补齐时第一帧的序号还是跳过了 `last + 1`，就是补不回来了——这时应用该被明确告知（重载这条会话），不能装作连续。
+- 第一次见到某条会话时不补：晚加入的端本来就要自己 `sessionEvents` 拿历史，那是接管流程的事。
+
+`@alwith/api` 的两个客户端（TS 的 `FrameRuntimeClient`、Rust 的 `RuntimeClient`）都做了这件事：应用只会按序、不重复地收到事件，补不回来的会得到 `gap`（TS `onGap`，Rust `ClientEvent::Gap {sessionId, from, to}`）。自己写客户端就照上面三条做。
 
 ---
 
@@ -468,6 +478,7 @@ while let Ok(event) = events.recv().await {
 | `cancel` | `agentId, sessionId, owner?` | null | 属主 |
 | `acpRequest` / `acpNotify` / `acpRespond` | `agentId, method \| id, params \| result, owner?` | ACP 结果 / null | 属主 |
 | `setSlowMode` | `delayMs` | null | 任何连接（开发用） |
+| `shutdown` | — | null，随后 Runtime 收尾退出 | 只有 stdio 连接（ws 上是未知方法：浏览器不能关掉共享的 Runtime） |
 | `modules` | — | 模块状态数组 | 任何连接 |
 | `modules/<name>/<method>` | 模块定 | 模块定 | 任何连接 |
 

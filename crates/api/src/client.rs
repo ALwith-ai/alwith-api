@@ -10,25 +10,28 @@ use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::{
-    AttachInfo, ResponseError, RuntimeEvent, SessionEventFrame, SessionLifecycleFrame, SessionRunState,
-};
+use crate::{AttachInfo, ResponseError, RuntimeEvent, SessionEventFrame, SessionLifecycleFrame, SessionRunState};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
-pub const EVENT_CAPACITY: usize = 4_096;
-
-/// 一条从 Runtime 来的事件帧。协议事件按 [`RuntimeEvent`] 解;`lagged` 与宿主扩展事件走 `Other`。
+/// 一条从 Runtime 来的事件帧。协议事件按 [`RuntimeEvent`] 解;宿主扩展事件走 `Other`。
+///
+/// 投递承诺:每条会话里进了日志的帧(带 `session_id` + `sequence` 的 outbound / acpNotification /
+/// acpAgentRequest)按日志顺序、恰好一次地送到订阅者。Runtime 在 stdio 宿主跟不上时会丢事件并发
+/// `lagged`,慢 ws 连接会被断开;这里按序号发现漏洞,先用 `sessionEvents` 补上,再投后面的。
+/// 日志里也没有了的那段以 `Gap` 报出来,不装作连续。
 #[derive(Clone, Debug)]
 pub enum ClientEvent {
     Runtime(RuntimeEvent),
-    /// 连接丢帧(stdio 入口队列溢出),`dropped` 条事件没送到;按 sequence 回放补齐。
-    Lagged {
-        dropped: u64,
+    /// 补不回来的那段:日志已经丢了 `from..=to`,这段什么都没投;应用该重载这条会话。
+    Gap {
+        session_id: String,
+        from: u64,
+        to: u64,
     },
     Other(Value),
     /// 读端结束:对端退出或 stdin EOF。之后 `request` 一律报错;模块收到它就该收工。
@@ -62,19 +65,252 @@ pub type RequestHandler = Arc<
         + Sync,
 >;
 
+/// 补齐时一页要多少帧;Runtime 一页最多 2000。
+const REFILL_PAGE: usize = 2_000;
+/// 补齐中又有帧插进来时最多再补几轮,之后报 Gap。
+const REFILL_ROUNDS: u32 = 2;
+
+/// 一条会话在日志里走到哪了。
+struct SessionCursor {
+    agent_id: String,
+    /// 最后投出去的序号;第一条带序号的帧之前是 None。
+    last: Option<u64>,
+    refilling: bool,
+    /// 补齐期间到的活帧,补完按序投出。
+    parked: Vec<(u64, RuntimeEvent)>,
+}
+
+enum Verdict {
+    Deliver,
+    Duplicate,
+    Gap,
+}
+
+/// 这一帧相对最后投出的那帧:下一号(或第一次见)就投;高位之后又来 0 是引擎重放了历史
+/// (带 `replayFrom` 的 resume 清日志),也投;不高于 last 的是重复;更靠后的说明中间丢了。
+fn verdict(last: Option<u64>, sequence: u64) -> Verdict {
+    match last {
+        None => Verdict::Deliver,
+        Some(last) if sequence == last + 1 => Verdict::Deliver,
+        Some(last) if sequence == 0 && last > 0 => Verdict::Deliver,
+        Some(last) if sequence <= last => Verdict::Duplicate,
+        Some(_) => Verdict::Gap,
+    }
+}
+
+/// 活事件上的日志位置:进了日志的三种事件才有。
+fn journal_position(event: &RuntimeEvent) -> Option<(String, u64, String)> {
+    match event {
+        RuntimeEvent::Outbound { agent_id, session_id: Some(session_id), sequence: Some(sequence), .. }
+        | RuntimeEvent::AcpNotification { agent_id, session_id: Some(session_id), sequence: Some(sequence), .. }
+        | RuntimeEvent::AcpAgentRequest { agent_id, session_id: Some(session_id), sequence: Some(sequence), .. } => {
+            Some((session_id.clone(), *sequence, agent_id.clone()))
+        }
+        _ => None,
+    }
+}
+
+/// 日志里的一帧,按它当初作为活事件的样子还原。响应帧(我们自己请求的回答)没有可重放的。
+fn journaled_event(agent_id: &str, session_id: &str, frame: &SessionEventFrame) -> Option<RuntimeEvent> {
+    let position = (Some(session_id.to_string()), Some(frame.sequence));
+    if frame.direction == crate::FrameDirection::Out {
+        return Some(RuntimeEvent::Outbound {
+            agent_id: agent_id.to_string(),
+            line: frame.line.clone(),
+            session_id: position.0,
+            sequence: position.1,
+        });
+    }
+    let value: Value = serde_json::from_str(&frame.line).ok()?;
+    let method = value.get("method").and_then(Value::as_str)?.to_string();
+    let params = value.get("params").cloned().unwrap_or(Value::Null);
+    Some(match value.get("id") {
+        Some(id) if !id.is_null() => RuntimeEvent::AcpAgentRequest {
+            agent_id: agent_id.to_string(),
+            id: id.clone(),
+            method,
+            params,
+            session_id: position.0,
+            sequence: position.1,
+        },
+        _ => RuntimeEvent::AcpNotification {
+            agent_id: agent_id.to_string(),
+            method,
+            params,
+            session_id: position.0,
+            sequence: position.1,
+        },
+    })
+}
+
 struct Shared {
     pending: Mutex<HashMap<u64, oneshot::Sender<Result<Value, ResponseError>>>>,
-    events: broadcast::Sender<ClientEvent>,
+    /// 每个订阅者一条无界队列:进程内不丢,慢消费者只是内存多占一点,不会再有第二个丢点。
+    subscribers: Mutex<Vec<mpsc::UnboundedSender<ClientEvent>>>,
+    cursors: Mutex<HashMap<String, SessionCursor>>,
+    next_id: AtomicU64,
     closed: Mutex<Option<String>>,
+    closed_notify: tokio::sync::Notify,
     handler: Option<RequestHandler>,
-    /// 回答对方请求与发事件都走这条写端(与 `RuntimeClient::writer` 同一条流)。
+    /// 回答对方请求、发事件、补齐用的请求都走这条写端(与 `RuntimeClient::writer` 同一条流)。
     outbound: mpsc::UnboundedSender<String>,
+}
+
+impl Shared {
+    fn emit(&self, event: ClientEvent) {
+        self.subscribers.lock().unwrap().retain(|subscriber| subscriber.send(event.clone()).is_ok());
+    }
+
+    /// 读循环里发起的请求(补齐用):经 `outbound` 写出,响应仍由读循环配对。
+    async fn request(self: &Arc<Self>, method: &str, params: Value) -> Result<Value, ResponseError> {
+        if let Some(reason) = self.closed.lock().unwrap().clone() {
+            return Err(ResponseError::connection_lost(format!("{method}: {reason}")));
+        }
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let (sender, receiver) = oneshot::channel();
+        self.pending.lock().unwrap().insert(id, sender);
+        let mut line =
+            serde_json::to_string(&RequestEnvelope { id, method, params: Some(params) }).expect("serialize request");
+        line.push('\n');
+        if self.outbound.send(line).is_err() {
+            self.pending.lock().unwrap().remove(&id);
+            return Err(ResponseError::connection_lost(format!("{method}: connection closed")));
+        }
+        match receiver.await {
+            Ok(result) => result,
+            Err(_) => Err(ResponseError::connection_lost(format!("{method}: connection closed"))),
+        }
+    }
+
+    /// 带日志位置的活事件:投、排队、丢重复,或为前面的洞开一轮补齐。
+    fn route(self: &Arc<Self>, event: RuntimeEvent) {
+        let Some((session_id, sequence, agent_id)) = journal_position(&event) else {
+            self.emit(ClientEvent::Runtime(event));
+            return;
+        };
+        let mut cursors = self.cursors.lock().unwrap();
+        let cursor = cursors.entry(session_id.clone()).or_insert_with(|| SessionCursor {
+            agent_id: agent_id.clone(),
+            last: None,
+            refilling: false,
+            parked: Vec::new(),
+        });
+        cursor.agent_id = agent_id;
+        if cursor.refilling {
+            cursor.parked.push((sequence, event));
+            return;
+        }
+        match verdict(cursor.last, sequence) {
+            Verdict::Deliver => {
+                cursor.last = Some(sequence);
+                drop(cursors);
+                self.emit(ClientEvent::Runtime(event));
+            }
+            Verdict::Duplicate => {}
+            Verdict::Gap => {
+                cursor.refilling = true;
+                cursor.parked.push((sequence, event));
+                drop(cursors);
+                tokio::spawn(Arc::clone(self).refill(session_id, 0));
+            }
+        }
+    }
+
+    /// Runtime 说丢了(`lagged`)或重连之后:跟着的每条会话都从最后见到的序号补。
+    fn refill_all(self: &Arc<Self>) {
+        let mut cursors = self.cursors.lock().unwrap();
+        for (session_id, cursor) in cursors.iter_mut() {
+            if cursor.last.is_some() && !cursor.refilling {
+                cursor.refilling = true;
+                tokio::spawn(Arc::clone(self).refill(session_id.clone(), 0));
+            }
+        }
+    }
+
+    /// 从最后投出的序号往后拉 `sessionEvents`,按序投出,再投补齐期间攒下的活帧。
+    /// 日志里也没有的那段报一次 Gap。
+    async fn refill(self: Arc<Self>, session_id: String, round: u32) {
+        let (mut after, agent_id) = {
+            let cursors = self.cursors.lock().unwrap();
+            let cursor = &cursors[&session_id];
+            (cursor.last.unwrap_or(0), cursor.agent_id.clone())
+        };
+        let mut first = true;
+        loop {
+            let params = serde_json::json!({ "sessionId": session_id, "afterSequence": after, "limit": REFILL_PAGE });
+            let frames: Vec<SessionEventFrame> = match self.request("sessionEvents", params).await {
+                Ok(value) => serde_json::from_value(value).unwrap_or_default(),
+                // 连接没了:重连那条路会再补;先把攒下的投出去。
+                Err(_) => break,
+            };
+            if frames.is_empty() {
+                break;
+            }
+            if first && frames[0].sequence > after + 1 {
+                self.emit(ClientEvent::Gap {
+                    session_id: session_id.clone(),
+                    from: after + 1,
+                    to: frames[0].sequence - 1,
+                });
+            }
+            first = false;
+            let page = frames.len();
+            for frame in frames {
+                if frame.sequence <= after {
+                    continue;
+                }
+                if let Some(event) = journaled_event(&agent_id, &session_id, &frame) {
+                    self.emit(ClientEvent::Runtime(event));
+                }
+                after = frame.sequence;
+                self.cursors.lock().unwrap().get_mut(&session_id).expect("cursor").last = Some(after);
+            }
+            if page < REFILL_PAGE {
+                break;
+            }
+        }
+        // 攒下的活帧按序投;补完还有洞就再补一轮,轮数用完才报 Gap。持锁投递:emit 只是往队列里放,不等谁。
+        // 锁的作用域必须在下面的 await 之前结束(块表达式),否则这个 future 不是 Send。
+        let another_round = {
+            let mut cursors = self.cursors.lock().unwrap();
+            let cursor = cursors.get_mut(&session_id).expect("cursor");
+            let mut parked = std::mem::take(&mut cursor.parked);
+            parked.sort_by_key(|(sequence, _)| *sequence);
+            let mut still_missing = Vec::new();
+            for (sequence, event) in parked {
+                match verdict(cursor.last, sequence) {
+                    Verdict::Duplicate => continue,
+                    Verdict::Gap if round < REFILL_ROUNDS => {
+                        still_missing.push((sequence, event));
+                        continue;
+                    }
+                    Verdict::Gap => self.emit(ClientEvent::Gap {
+                        session_id: session_id.clone(),
+                        from: cursor.last.map_or(0, |last| last + 1),
+                        to: sequence - 1,
+                    }),
+                    Verdict::Deliver => {}
+                }
+                cursor.last = Some(sequence);
+                self.emit(ClientEvent::Runtime(event));
+            }
+            if still_missing.is_empty() {
+                cursor.refilling = false;
+                false
+            } else {
+                cursor.parked = still_missing;
+                true
+            }
+        };
+        if another_round {
+            Box::pin(self.refill(session_id, round + 1)).await;
+        }
+    }
 }
 
 pub struct RuntimeClient {
     writer: Arc<tokio::sync::Mutex<Box<dyn AsyncWrite + Send + Unpin>>>,
     shared: Arc<Shared>,
-    next_id: AtomicU64,
     reader_task: JoinHandle<()>,
     child: Mutex<Option<Child>>,
 }
@@ -121,12 +357,14 @@ impl RuntimeClient {
         R: AsyncRead + Send + Unpin + 'static,
         W: AsyncWrite + Send + Unpin + 'static,
     {
-        let (events, _) = broadcast::channel(EVENT_CAPACITY);
         let (outbound, outbound_receiver) = mpsc::unbounded_channel::<String>();
         let shared = Arc::new(Shared {
             pending: Mutex::new(HashMap::new()),
-            events,
+            subscribers: Mutex::new(Vec::new()),
+            cursors: Mutex::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
             closed: Mutex::new(None),
+            closed_notify: tokio::sync::Notify::new(),
             handler,
             outbound,
         });
@@ -134,7 +372,7 @@ impl RuntimeClient {
             Arc::new(tokio::sync::Mutex::new(Box::new(writer)));
         tokio::spawn(write_loop(Arc::clone(&writer), outbound_receiver));
         let reader_task = tokio::spawn(read_loop(BufReader::new(reader), Arc::clone(&shared)));
-        Self { writer, shared, next_id: AtomicU64::new(1), reader_task, child: Mutex::new(None) }
+        Self { writer, shared, reader_task, child: Mutex::new(None) }
     }
 
     /// 发一条事件帧(`{"type": ...}`)。模块发的事件由 Runtime 包成 `{"type":"module"}` 广播给应用。
@@ -144,9 +382,12 @@ impl RuntimeClient {
         self.shared.outbound.send(line).map_err(|_| ResponseError::connection_lost("connection closed"))
     }
 
-    /// 订阅事件。每个订阅者一条队列;跟不上就 `RecvError::Lagged`,与 `ClientEvent::Lagged` 同义。
-    pub fn events(&self) -> broadcast::Receiver<ClientEvent> {
-        self.shared.events.subscribe()
+    /// 订阅事件。每个订阅者一条无界队列:进程内不丢,`None` 即客户端已 drop。
+    /// 会话事件按序、恰好一次(见 [`ClientEvent`]);补不回来的洞是 `ClientEvent::Gap`。
+    pub fn events(&self) -> mpsc::UnboundedReceiver<ClientEvent> {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        self.shared.subscribers.lock().unwrap().push(sender);
+        receiver
     }
 
     /// 任意方法,含宿主扩展。错误就是响应帧里的 `error`(code / message / data 原样);
@@ -155,7 +396,7 @@ impl RuntimeClient {
         if let Some(reason) = self.shared.closed.lock().unwrap().clone() {
             return Err(ResponseError::connection_lost(format!("{method}: {reason}")));
         }
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let id = self.shared.next_id.fetch_add(1, Ordering::Relaxed);
         let (sender, receiver) = oneshot::channel();
         self.shared.pending.lock().unwrap().insert(id, sender);
         let mut line = serde_json::to_string(&RequestEnvelope { id, method, params }).expect("serialize request");
@@ -398,6 +639,26 @@ impl RuntimeClient {
         self.shared.closed.lock().unwrap().clone()
     }
 
+    /// 退出链:先请 Runtime 走(`shutdown` 方法,它给模块与 agent 2 秒收尾窗后 kill_all),等连接结束;
+    /// `grace` 内没结束就强杀子进程。直接 kill 会让 agent 派生的进程组留活,所以先礼后兵。
+    /// 与 [`Self::shutdown`] 的差别:不消费 self,宿主用 `Arc<RuntimeClient>` 也能调。
+    pub async fn close(&self, grace: std::time::Duration) {
+        let deadline = tokio::time::Instant::now() + grace;
+        // 先登记等待,再看是否已经关了:`notify_waiters` 只叫醒已登记的,不然回执与 EOF 一起到时会错过。
+        let closed = self.shared.closed_notify.notified();
+        tokio::pin!(closed);
+        closed.as_mut().enable();
+        if self.closed().is_none() {
+            let _ = tokio::time::timeout_at(deadline, self.request("shutdown", None)).await;
+            if self.closed().is_none() {
+                let _ = tokio::time::timeout_at(deadline, closed).await;
+            }
+        }
+        if let Some(child) = self.child.lock().unwrap().as_mut() {
+            let _ = child.start_kill();
+        }
+    }
+
     /// 关闭写端(Runtime 收到 EOF 即 kill_all 退出),等读端结束;有子进程则回收它。
     pub async fn shutdown(mut self) {
         {
@@ -450,16 +711,14 @@ async fn read_loop<R: AsyncRead + Unpin>(mut reader: BufReader<R>, shared: Arc<S
         };
         // 先认事件:事件帧也可能带 `method`(如 acpNotification),不能当成对端的请求。
         if value.get("type").is_some() {
-            let event = match value.get("type").and_then(Value::as_str) {
-                Some("lagged") => {
-                    ClientEvent::Lagged { dropped: value.get("dropped").and_then(Value::as_u64).unwrap_or(0) }
-                }
+            match value.get("type").and_then(Value::as_str) {
+                // Runtime 这条连接丢了事件:跟着的每条会话都补一遍。
+                Some("lagged") => shared.refill_all(),
                 _ => match serde_json::from_value::<RuntimeEvent>(value.clone()) {
-                    Ok(event) => ClientEvent::Runtime(event),
-                    Err(_) => ClientEvent::Other(value),
+                    Ok(event) => shared.route(event),
+                    Err(_) => shared.emit(ClientEvent::Other(value)),
                 },
-            };
-            let _ = shared.events.send(event);
+            }
             continue;
         }
         if value.get("method").is_some() {
@@ -497,7 +756,8 @@ async fn read_loop<R: AsyncRead + Unpin>(mut reader: BufReader<R>, shared: Arc<S
     for (_, sender) in pending {
         let _ = sender.send(Err(ResponseError::connection_lost(reason.clone())));
     }
-    let _ = shared.events.send(ClientEvent::Closed { reason });
+    shared.emit(ClientEvent::Closed { reason });
+    shared.closed_notify.notify_waiters();
 }
 
 #[cfg(test)]
@@ -539,6 +799,123 @@ mod tests {
             writer.write_all(format!("{reply}\n").as_bytes()).await.unwrap();
         }
         seen_events
+    }
+
+    /// 有日志的假对端:`sessionEvents` 按 afterSequence 从给定帧里答;`shutdown` 回执后关掉自己的写端。
+    /// 测试用 `push` 往客户端塞事件帧。
+    fn fake_peer_with_journal(journal: Vec<Value>) -> (RuntimeClient, mpsc::UnboundedSender<Value>) {
+        let (client_reader, mut peer_writer) = tokio::io::duplex(64 * 1024);
+        let (peer_reader, client_writer) = tokio::io::duplex(64 * 1024);
+        let (push, mut pushed) = mpsc::unbounded_channel::<Value>();
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(peer_reader).lines();
+            loop {
+                let reply = tokio::select! {
+                    Some(event) = pushed.recv() => event,
+                    line = lines.next_line() => {
+                        let Ok(Some(line)) = line else { break };
+                        let value: Value = serde_json::from_str(&line).unwrap();
+                        match value.get("method").and_then(Value::as_str) {
+                            Some("sessionEvents") => {
+                                let after = value["params"]["afterSequence"].as_u64();
+                                let frames: Vec<&Value> = journal
+                                    .iter()
+                                    .filter(|frame| after.is_none_or(|after| frame["sequence"].as_u64().unwrap() > after))
+                                    .collect();
+                                serde_json::json!({ "id": value["id"], "result": frames, "error": null })
+                            }
+                            Some("shutdown") => {
+                                let receipt = serde_json::json!({ "id": value["id"], "result": null, "error": null });
+                                peer_writer.write_all(format!("{receipt}\n").as_bytes()).await.unwrap();
+                                break;
+                            }
+                            _ => serde_json::json!({ "id": value["id"], "result": null, "error": null }),
+                        }
+                    }
+                };
+                peer_writer.write_all(format!("{reply}\n").as_bytes()).await.unwrap();
+            }
+        });
+        (RuntimeClient::over(client_reader, client_writer), push)
+    }
+
+    fn update(sequence: u64) -> Value {
+        serde_json::json!({
+            "type": "acpNotification", "agentId": "a", "method": "session/update",
+            "params": { "sessionId": "s-1", "update": { "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": format!("t{sequence}") } } },
+            "sessionId": "s-1", "sequence": sequence
+        })
+    }
+
+    fn journaled(sequence: u64) -> Value {
+        let line = serde_json::json!({
+            "jsonrpc": "2.0", "method": "session/update",
+            "params": { "sessionId": "s-1", "update": { "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": format!("t{sequence}") } } }
+        });
+        serde_json::json!({ "sequence": sequence, "recordedAt": 1, "direction": "in", "line": line.to_string() })
+    }
+
+    /// 收够 `count` 条会话事件(或 Gap),返回序号序列;Gap 记成 `None`。
+    async fn collect(events: &mut mpsc::UnboundedReceiver<ClientEvent>, count: usize) -> Vec<Option<u64>> {
+        let mut seen = Vec::new();
+        while seen.len() < count {
+            let event = tokio::time::timeout(std::time::Duration::from_secs(2), events.recv())
+                .await
+                .expect("event before deadline")
+                .expect("client alive");
+            match event {
+                ClientEvent::Runtime(RuntimeEvent::AcpNotification { sequence, .. }) => seen.push(sequence),
+                ClientEvent::Gap { from, to, .. } => {
+                    assert_eq!((from, to), (1, 3));
+                    seen.push(None);
+                }
+                _ => {}
+            }
+        }
+        seen
+    }
+
+    #[tokio::test]
+    async fn a_skipped_sequence_is_refilled_from_the_journal_before_later_frames() {
+        let (client, push) = fake_peer_with_journal(vec![journaled(0), journaled(1), journaled(2), journaled(3)]);
+        let mut events = client.events();
+        push.send(update(0)).unwrap();
+        push.send(update(1)).unwrap();
+        push.send(update(3)).unwrap();
+        push.send(update(4)).unwrap();
+        assert_eq!(collect(&mut events, 5).await, vec![Some(0), Some(1), Some(2), Some(3), Some(4)]);
+    }
+
+    #[tokio::test]
+    async fn what_the_journal_lost_is_reported_as_a_gap_not_hidden() {
+        let (client, push) = fake_peer_with_journal(vec![journaled(4), journaled(5)]);
+        let mut events = client.events();
+        push.send(update(0)).unwrap();
+        push.send(update(5)).unwrap();
+        assert_eq!(collect(&mut events, 4).await, vec![Some(0), None, Some(4), Some(5)]);
+    }
+
+    #[tokio::test]
+    async fn lagged_refills_every_followed_session_and_duplicates_are_dropped() {
+        let (client, push) = fake_peer_with_journal(vec![journaled(0), journaled(1), journaled(2)]);
+        let mut events = client.events();
+        push.send(update(0)).unwrap();
+        push.send(serde_json::json!({ "type": "lagged", "dropped": 2 })).unwrap();
+        push.send(update(2)).unwrap();
+        push.send(update(3)).unwrap();
+        // 0 活的;lagged 后补 1、2;活的 2 是重复,丢;3 接上。
+        assert_eq!(collect(&mut events, 4).await, vec![Some(0), Some(1), Some(2), Some(3)]);
+    }
+
+    #[tokio::test]
+    async fn close_asks_the_runtime_to_shut_down_and_waits_for_the_connection_to_end() {
+        let (client, _push) = fake_peer_with_journal(Vec::new());
+        let mut events = client.events();
+        tokio::time::timeout(std::time::Duration::from_secs(2), client.close(std::time::Duration::from_secs(5)))
+            .await
+            .expect("close returns once the peer hangs up, not after the grace");
+        assert!(client.closed().is_some());
+        assert!(matches!(events.recv().await.unwrap(), ClientEvent::Closed { .. }));
     }
 
     #[tokio::test]

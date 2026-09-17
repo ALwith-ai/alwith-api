@@ -116,3 +116,126 @@ describe("FrameRuntimeClient", () => {
     await answered
   })
 })
+
+describe("按序、不重复:漏帧从日志补齐", () => {
+  const update = (sequence: number, text = `t${sequence}`) => ({
+    type: "acpNotification",
+    agentId: "a",
+    method: "session/update",
+    params: { sessionId: "s-1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } },
+    sessionId: "s-1",
+    sequence
+  })
+  const journaled = (sequence: number, text = `t${sequence}`) => ({
+    sequence,
+    recordedAt: 1,
+    direction: "in",
+    line: JSON.stringify({
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: { sessionId: "s-1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } }
+    })
+  })
+  const sequencesOf = (events: Array<{ sequence?: number }>) => events.map(event => event.sequence)
+
+  test("序号跳了:先向 Runtime 要中间那段,补完再投后面的", async () => {
+    const port = new MemoryPort()
+    const seen: Array<{ sequence?: number }> = []
+    await port.onAcpNotification(n => seen.push(n))
+    port.push(update(0))
+    port.push(update(1))
+    port.push(update(3))
+    await flush()
+    expect(sequencesOf(seen)).toEqual([0, 1])
+    expect(JSON.parse(port.written[0])).toEqual({ id: 1, method: "sessionEvents", params: { sessionId: "s-1", afterSequence: 1, limit: 2000 } })
+    port.push({ id: 1, result: [journaled(2)], error: null })
+    await flush()
+    await flush()
+    expect(sequencesOf(seen)).toEqual([0, 1, 2, 3])
+    port.push(update(4))
+    expect(sequencesOf(seen)).toEqual([0, 1, 2, 3, 4])
+  })
+
+  test("补齐期间到的活帧排在后面,不插队", async () => {
+    const port = new MemoryPort()
+    const seen: Array<{ sequence?: number }> = []
+    await port.onAcpNotification(n => seen.push(n))
+    port.push(update(0))
+    port.push(update(2))
+    await flush()
+    port.push(update(3))
+    port.push({ id: 1, result: [journaled(1)], error: null })
+    await flush()
+    await flush()
+    expect(sequencesOf(seen)).toEqual([0, 1, 2, 3])
+  })
+
+  test("日志里也没有了:报 gap,不装作连续", async () => {
+    const port = new MemoryPort()
+    const seen: Array<{ sequence?: number }> = []
+    const gaps: unknown[] = []
+    await port.onAcpNotification(n => seen.push(n))
+    port.onGap(gap => gaps.push(gap))
+    port.push(update(0))
+    port.push(update(5))
+    await flush()
+    port.push({ id: 1, result: [journaled(4)], error: null })
+    await flush()
+    await flush()
+    expect(gaps).toEqual([{ sessionId: "s-1", from: 1, to: 3 }])
+    expect(sequencesOf(seen)).toEqual([0, 4, 5])
+  })
+
+  test("lagged:Runtime 说丢了,跟着的每条会话都从最后见到的序号补", async () => {
+    const port = new MemoryPort()
+    const seen: Array<{ sequence?: number }> = []
+    await port.onAcpNotification(n => seen.push(n))
+    port.push(update(0))
+    port.push({ type: "lagged", dropped: 2 })
+    await flush()
+    expect(JSON.parse(port.written[0])).toMatchObject({ method: "sessionEvents", params: { sessionId: "s-1", afterSequence: 0 } })
+    port.push({ id: 1, result: [journaled(1), journaled(2)], error: null })
+    await flush()
+    await flush()
+    port.push(update(3))
+    expect(sequencesOf(seen)).toEqual([0, 1, 2, 3])
+  })
+
+  test("重复的丢掉;序号从 0 重来是引擎重放了历史,照收", () => {
+    const port = new MemoryPort()
+    const seen: Array<{ sequence?: number }> = []
+    void port.onAcpNotification(n => seen.push(n))
+    port.push(update(0))
+    port.push(update(1))
+    port.push(update(1))
+    port.push(update(0))
+    port.push(update(1))
+    expect(sequencesOf(seen)).toEqual([0, 1, 0, 1])
+  })
+
+  test("日志里的 out 帧与请求帧按原样投给对应的订阅", async () => {
+    const port = new MemoryPort()
+    const outbound: unknown[] = []
+    const requests: unknown[] = []
+    await port.onAcpNotification(() => undefined)
+    await port.onOutbound(line => outbound.push(line))
+    await port.onAcpAgentRequest(r => requests.push(r))
+    port.push(update(0))
+    port.push(update(3))
+    await flush()
+    const prompt = JSON.stringify({ jsonrpc: "2.0", id: 9, method: "session/prompt", params: { sessionId: "s-1", prompt: [] } })
+    const permission = JSON.stringify({ jsonrpc: "2.0", id: 10, method: "session/request_permission", params: { sessionId: "s-1" } })
+    port.push({
+      id: 1,
+      result: [
+        { sequence: 1, recordedAt: 1, direction: "out", line: prompt },
+        { sequence: 2, recordedAt: 1, direction: "in", line: permission }
+      ],
+      error: null
+    })
+    await flush()
+    await flush()
+    expect(outbound).toEqual([{ agentId: "a", line: prompt, sessionId: "s-1", sequence: 1 }])
+    expect(requests).toEqual([{ agentId: "a", id: 10, method: "session/request_permission", params: { sessionId: "s-1" }, sessionId: "s-1", sequence: 2 }])
+  })
+})
