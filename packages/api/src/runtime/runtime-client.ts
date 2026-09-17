@@ -1,4 +1,6 @@
 import type {
+  RuntimeGap,
+  RuntimeOutbound,
   RuntimeAgentInfo,
   RuntimeAttachInfo,
     RuntimeExitPayload,
@@ -39,6 +41,10 @@ export interface RuntimeClient<Launch = unknown> {
   /** Frames after `afterSequence` (exclusive); omit it to read from the start. */
   sessionEvents(sessionId: string, afterSequence?: number, limit?: number): Promise<SessionEventFrame[]>
   runStates(): Promise<SessionRunState[]>
+  /** Lines any connection `send`s to an agent (journaled ones carry `sessionId` + `sequence`). */
+  onOutbound(handler: (line: RuntimeOutbound) => void): Promise<() => void>
+  /** Frames the client could not refill because the journal had dropped them: reload that session. */
+  onGap(handler: (gap: RuntimeGap) => void): () => void
   /** The Runtime's own version, the same number `alwith-runtime --version` prints. */
   version(): Promise<string>
   agents(): Promise<RuntimeAgentInfo[]>
