@@ -1,0 +1,39 @@
+# 发 @alwith/api 到 npm:推一个 v<版本> 的 tag 就发。
+#
+# 用 npm 的 trusted publishing(OIDC):CI 拿 GitHub 签发的身份直接发,仓库里、npmjs 上都不存 token,
+# 也就没有 token 过期、绕过 2FA 被 npm 收紧这些事。npmjs.com 上要配一次(见 README「发布」),
+# 之后本地永远不用 npm login。带 --provenance:包页上能看到它是从哪个 commit、哪次 workflow 出来的。
+name: publish
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  # OIDC:向 npm 证明「我是 ALwith-ai/alwith-api 的 publish.yml」
+  id-token: write
+
+jobs:
+  npm:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      # npm ≥ 11.5.1 才会走 OIDC;Node 24 自带的 npm 满足
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test packages
+      - name: tag 必须就是 package.json 里的版本
+        run: |
+          version=$(node -p "require('./packages/api/package.json').version")
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "tag $GITHUB_REF_NAME != v$version(packages/api/package.json)"; exit 1
+          fi
+      # prepack 会跑 bun run build,只有 dist 进包(见 scripts/build-npm.ts)
+      - run: npm publish --provenance --access public
+        working-directory: packages/api

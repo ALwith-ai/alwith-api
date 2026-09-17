@@ -13,3 +13,17 @@ Runtime 独立构建，不依赖本仓。Rust 协议类型由 Runtime 二进制�
 `bun scripts/sync-runtime-protocol.ts /path/to/alwith-runtime`；CI 校验时加 `--check`。
 客户端跨进程测试：设置 `ALWITH_RUNTIME_TEST_BINARY` 后运行
 `cargo test -p alwith-api --features runtime-contract-tests`，不链接 Runtime 私有 Rust crate。
+
+## 发布 `@alwith/api`
+
+推一个 `v<版本>` 的 tag,[publish.yml](.github/workflows/publish.yml) 跑测试、构建 dist、发到 npm。本地不用 `npm login`:走 npm 的 trusted publishing(OIDC),没有 token。
+
+一次性配置(npmjs.com,包 `@alwith/api` → Settings → Trusted Publisher → GitHub Actions):Organization `ALwith-ai`、Repository `alwith-api`、Workflow filename `publish.yml`、Environment 留空。配完把 Publishing access 设成「Require two-factor authentication and disallow tokens」,trusted publisher 不受这条限制,反而把失效 token 那条路彻底关掉。
+
+发版:改 `packages/api/package.json` 的 `version`,提交,然后
+
+```sh
+git tag v0.1.1 && git push origin v0.1.1
+```
+
+tag 和 `version` 不一致 workflow 直接失败。
