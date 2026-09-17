@@ -16,7 +16,7 @@ Runtime 独立构建，不依赖本仓。Rust 协议类型由 Runtime 二进制�
 
 ## 发布 `@alwith/api`
 
-推一个 `v<版本>` 的 tag,[publish.yml](.github/workflows/publish.yml) 跑测试、构建 dist、发到 npm。本地不用 `npm login`:走 npm 的 trusted publishing(OIDC),没有 token。
+推一个 `v<版本>` 的 tag,[publish.yml](.github/workflows/publish.yml) 跑测试、构建 dist、发到 npm。本地不用 `npm login`:走 npm 的 trusted publishing(OIDC),没有 token。不带 provenance:那只支持公开源码仓,仓库公开那天再加。
 
 一次性配置(npmjs.com,包 `@alwith/api` → Settings → Trusted Publisher → GitHub Actions):Organization `ALwith-ai`、Repository `alwith-api`、Workflow filename `publish.yml`、Environment 留空。配完把 Publishing access 设成「Require two-factor authentication and disallow tokens」,trusted publisher 不受这条限制,反而把失效 token 那条路彻底关掉。
 
