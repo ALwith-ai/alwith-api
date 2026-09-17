@@ -10,7 +10,7 @@ Runtime 只做四件事：托管 agent 进程、维护会话运行态、记会�
 
 | 东西 | 在哪 | 干什么 |
 | --- | --- | --- |
-| `alwith-runtime` 二进制 | Runtime 的 GitHub Release，按平台 `alwith-runtime-<rust-triple>.tar.gz` | 唯一共享的进程，你的应用 spawn 它或连它 |
+| `alwith-runtime` 二进制 | npm 的 `@alwith/runtime`：`optionalDependencies` 按平台装一个 `@alwith/runtime-<os>-<cpu>`，构建时 `stageRuntime()` 校验 sha 后拷进你的 sidecar；不用 npm 的话 registry 上的 tgz 是公开 HTTPS 地址，`curl` 也行 | 唯一共享的进程，你的应用 spawn 它或连它 |
 | `@alwith/api` | 本仓 `packages/api` | TypeScript：`./runtime` 连 Runtime、`./agent` 持有 agent、`./session` 会话状态；传输 WebSocket / Tauri 中转 / Node 子进程 |
 | `alwith-api` | 本仓 `crates/api` | Rust：协议类型 + 客户端（feature `client`）：spawn 一个 Runtime 走 stdio，或接任意字节流 |
 | 一个 ACP agent | 你自己选：`alwith-cli --acp`、`codex-acp-v2`、任何说 ACP 的进程 | Runtime 只负责起它、转发它 |
