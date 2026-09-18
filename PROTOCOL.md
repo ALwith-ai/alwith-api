@@ -392,7 +392,7 @@ agent 发的 `session/request_permission` 是普通 ACP 请求，走 `lines` 事
 
 进程环境：cwd 是模块目录，`ALWITH_MODULE_NAME` 是模块名，stderr 直通 Runtime 的 stderr。模块的 stdin 到 EOF（Runtime 退出）就该退出。
 
-用本仓的客户端写模块：Rust 用 `RuntimeClient::over_with_handler(stdin, stdout, handler)`，TS 用 `ProcessRuntimeClient`；`handler` 收应用的请求，`emit` 发事件，其余方法照常调 Runtime。
+用本仓的客户端写模块：Rust 用 `RuntimeClient::over_with_handler(stdin, stdout, handler)`，TS 用 `@alwith/api/module` 的 `ModuleRuntimeClient({input: process.stdin, output: process.stdout, handle})`；`handle(method, params, signal)` 收请求，`emit` 发事件，其余方法照常调 Runtime。两个方向的 ID 独立，处理请求时仍读取响应。EOF 会 abort 所有 handler 的 signal、拒绝在途请求并丢弃迟到回复；业务处理器必须遵守 signal。`ProcessRuntimeClient` 用于应用启动一个新 Runtime，不是模块端点。模块 stdout 只写协议帧，日志写 stderr。
 
 ### 7.3 应用怎么用模块
 
