@@ -21,18 +21,22 @@ export class TauriRuntimeClient<Launch = unknown> extends FrameRuntimeClient<Lau
   protected connectTransport(): Promise<void> {
     if (this.exited) return Promise.reject(new Error("Runtime exited"))
     this.connecting ??= (async () => {
-      // Subscribe before start so no batch emitted during startup is missed.
-      const stopLines = await listen<string[]>(LINES_EVENT, event => {
-        for (const line of event.payload) {
-          const frame = JSON.parse(line) as { type?: string; id?: unknown; connectionId?: string }
-          if (frame.type === undefined && frame.id !== undefined && frame.connectionId !== this.connectionId) continue
-          this.receive(line)
-        }
-      })
-      const stopExit = await listen<RuntimeExit>(EXIT_EVENT, () => this.markExited())
-      this.unlisten = [stopLines, stopExit]
       try {
+        // Subscribe before start so no batch emitted during startup is missed.
+        const stopLines = await listen<string[]>(LINES_EVENT, event => {
+          for (const line of event.payload) {
+            const frame = JSON.parse(line) as { type?: string; id?: unknown; connectionId?: string }
+            if (frame.type === undefined && frame.id !== undefined && frame.connectionId !== this.connectionId) continue
+            this.receive(line)
+          }
+        })
+        this.unlisten.push(stopLines)
+        if (this.exited) throw new Error("Runtime connection closed")
+        const stopExit = await listen<RuntimeExit>(EXIT_EVENT, () => this.markExited())
+        this.unlisten.push(stopExit)
+        if (this.exited) throw new Error("Runtime connection closed")
         await invoke("runtime_start", { connectionId: this.connectionId })
+        if (this.exited) throw new Error("Runtime connection closed")
       } catch (error) {
         this.connecting = undefined
         for (const stop of this.unlisten) stop()
@@ -56,6 +60,8 @@ export class TauriRuntimeClient<Launch = unknown> extends FrameRuntimeClient<Lau
   }
 
   close(): void {
+    this.exited = true
+    this.rejectPending("Runtime connection closed")
     for (const stop of this.unlisten) stop()
     this.unlisten = []
     this.connecting = undefined
