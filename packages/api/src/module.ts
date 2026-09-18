@@ -73,6 +73,14 @@ export class ModuleRuntimeClient<Launch = unknown> extends FrameRuntimeClient<La
       const value: unknown = JSON.parse(line)
       if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid Runtime module frame")
       const frame = value as Record<string, unknown>
+      if (frame.method === "_runtime/cancel" && !("id" in frame)) {
+        const params = frame.params as { id?: unknown } | undefined
+        if (!Number.isSafeInteger(params?.id)) throw new Error("Invalid Runtime cancellation")
+        const id = params!.id as number
+        this.incoming.get(id)?.abort(new Error("Runtime request cancelled"))
+        this.incoming.delete(id)
+        return
+      }
       if ("method" in frame && !("type" in frame)) {
         if (typeof frame.method !== "string" || !Number.isSafeInteger(frame.id) || this.incoming.has(frame.id as number)) {
           throw new Error("Invalid or duplicate Runtime module request")

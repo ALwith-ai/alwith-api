@@ -79,3 +79,24 @@ test("module events and Runtime events share the pipe without becoming requests"
     expect(await port.next()).toEqual({ type: "ready", port: 1234 })
   } finally { port.client.close() }
 })
+
+test("request cancellation aborts only its handler and suppresses a late result", async () => {
+  let signal!: AbortSignal
+  let finish!: (value: string) => void
+  const port = harness((method, _, current) => {
+    if (method === "healthy") return "ok"
+    signal = current
+    return new Promise<string>(resolve => { finish = resolve })
+  })
+  try {
+    port.send({ id: 1, method: "slow" })
+    port.send({ method: "_runtime/cancel", params: { id: 1 } })
+    expect(signal.aborted).toBe(true)
+    finish("late")
+    port.send({ id: 2, method: "healthy" })
+    expect(await port.next()).toEqual({ id: 2, result: "ok" })
+    await new Promise(resolve => setImmediate(resolve))
+    expect(port.frames).toEqual([])
+    expect(port.client.signal.aborted).toBe(false)
+  } finally { port.client.close() }
+})
