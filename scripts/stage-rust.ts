@@ -4,7 +4,6 @@ import { join, resolve } from "node:path";
 type PackageValue = string | number | boolean | string[] | { workspace: boolean };
 interface CargoManifest {
   package: Record<string, PackageValue>;
-  workspace?: Record<string, unknown>;
 }
 
 /** Generate the npm artifact from the authoritative crate, with no parent workspace required. */
@@ -23,8 +22,6 @@ export function stageRust(packageRoot: string): void {
     }
   }
   manifest.package["license-file"] = "LICENSE";
-  // Keep Cargo from attaching this crate to a consumer's enclosing workspace.
-  manifest.workspace = {};
   const output = join(packageRoot, "rust");
   // This directory is generated exclusively by this script; never retain stale source files.
   rmSync(output, { recursive: true, force: true });

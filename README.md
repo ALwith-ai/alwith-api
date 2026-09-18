@@ -16,7 +16,7 @@ Runtime 独立构建，不依赖本仓。Rust 协议类型由 Runtime 二进制�
 
 ## npm 分发 Rust SDK
 
-从 `@alwith/api` 0.1.3 起，npm 包同时携带 JS 产物和 `rust/` crate。Rust 源码唯一维护在 `crates/api`；打包时自动复制源码与契约测试、展开 workspace 元数据，并附上包内许可证。生成目录不提交。
+从 `@alwith/api` 0.1.4 起，npm 包同时携带 JS 产物和 `rust/` crate。Rust 源码唯一维护在 `crates/api`；打包时自动复制源码与契约测试、展开 workspace 元数据，并附上包内许可证。生成目录不提交。
 
 先安装 npm 依赖，再让 Cargo 使用相对于消费端 Cargo.toml 的路径：
 

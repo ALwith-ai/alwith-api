@@ -49,7 +49,7 @@ agents.onExit(agent => …)                                       // 进程没�
 
 ## Rust SDK
 
-从 0.1.3 起，包内 `rust/` 是独立 Cargo crate，包含协议类型、Runtime 客户端及进程辅助。先用 Bun 安装此包，再配置相对于 Cargo.toml 的 `path`：
+从 0.1.4 起，包内 `rust/` 是可嵌入消费端 workspace 的 Cargo crate，包含协议类型、Runtime 客户端及进程辅助。先用 Bun 安装此包，再配置相对于 Cargo.toml 的 `path`：
 
 ```toml
 [dependencies]
