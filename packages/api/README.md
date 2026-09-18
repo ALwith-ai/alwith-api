@@ -47,6 +47,17 @@ agents.onExit(agent => …)                                       // 进程没�
 
 协议参考是仓库根的 [PROTOCOL.md](../../PROTOCOL.md);这个包是它的应用侧。
 
+## Rust SDK
+
+从 0.1.3 起，包内 `rust/` 是独立 Cargo crate，包含协议类型、Runtime 客户端及进程辅助。先用 Bun 安装此包，再配置相对于 Cargo.toml 的 `path`：
+
+```toml
+[dependencies]
+alwith-api = { path = "../node_modules/@alwith/api/rust", features = ["client"] }
+```
+
+上例适用于 `src-tauri/Cargo.toml`。根目录 Cargo.toml 使用 `node_modules/@alwith/api/rust`。仅需类型时使用 `default-features = false`。此 crate 在消费端编译，不依赖上游 Git checkout。
+
 ## License and redistribution
 
 See [LICENSE](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md).
@@ -54,5 +65,6 @@ ALwith-owned code is proprietary, not open source. You may build, customize, hos
 charge for and distribute your own WorkBuddy applications under the included
 license, without per-application registration. This does not grant hosted-service
 access or rights to separately distributed Rust libraries or Runtime binaries.
-The npm artifact includes compiled/minified JS, declarations and necessary assets,
-not the private TS/TSX implementation or source maps. Minification is not encryption.
+The npm artifact includes compiled/minified JS, declarations, necessary assets,
+and the Rust SDK source under `rust/`. It does not include the private TS/TSX
+implementation or source maps. Minification is not encryption.

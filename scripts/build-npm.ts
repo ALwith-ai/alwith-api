@@ -2,7 +2,9 @@ import { createRequire } from "node:module";
 import { dirname, relative, resolve, sep } from "node:path";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 
-// Run from a package directory. Source stays private; only dist is packed.
+import { stageRust } from "./stage-rust";
+
+// JS implementation stays private; the Rust SDK source is included for Cargo consumers.
 const root = process.cwd();
 const require = createRequire(resolve(root, "package.json"));
 const ts = require("typescript-compiler") as typeof import("typescript-compiler");
@@ -64,4 +66,5 @@ for (const entry of Object.values(pkg.exports) as any[]) {
 for (const file of walk(dist)) {
   if (file.endsWith(".map") || (/\.tsx?$/.test(file) && !file.endsWith(".d.ts")) || file.includes("__tests__")) throw new Error(`Private source in dist: ${file}`);
 }
+stageRust(root);
 console.log(`${pkg.name}: built ${walk(dist).length} distribution files; no source maps or implementation TS/TSX`);
