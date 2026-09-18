@@ -691,7 +691,14 @@ async fn write_loop(
 
 async fn read_loop<R: AsyncRead + Unpin>(mut reader: BufReader<R>, shared: Arc<Shared>) {
     let mut line = String::new();
+    let mut handlers = tokio::task::JoinSet::<String>::new();
+    let mut active = std::collections::HashMap::<String, tokio::task::AbortHandle>::new();
     let reason = loop {
+        while let Some(result) = handlers.try_join_next() {
+            if let Ok(id) = result {
+                active.remove(&id);
+            }
+        }
         line.clear();
         match reader.read_line(&mut line).await {
             Ok(0) => break "connection closed".to_string(),
@@ -725,18 +732,34 @@ async fn read_loop<R: AsyncRead + Unpin>(mut reader: BufReader<R>, shared: Arc<S
             let id = value.get("id").cloned().unwrap_or(Value::Null);
             let method = value.get("method").and_then(Value::as_str).unwrap_or_default().to_string();
             let params = value.get("params").cloned().unwrap_or(Value::Null);
-            let response = match &shared.handler {
-                Some(handler) => match handler(method.clone(), params).await {
-                    Ok(result) => serde_json::json!({ "id": id, "result": result, "error": null }),
-                    Err(error) => serde_json::json!({ "id": id, "result": null, "error": error }),
-                },
-                None => {
-                    serde_json::json!({ "id": id, "result": null, "error": ResponseError::method_not_found(&method) })
+            if method == "_runtime/cancel" {
+                if let Some(handle) = params.get("id").and_then(|id| active.remove(&id.to_string())) {
+                    handle.abort();
                 }
-            };
-            let mut line = response.to_string();
-            line.push('\n');
-            let _ = shared.outbound.send(line);
+                continue;
+            }
+            let key = id.to_string();
+            if !id.is_null() && active.get(&key).is_some_and(|handle| !handle.is_finished()) {
+                continue; // A duplicate active request must never execute twice.
+            }
+            let shared = Arc::clone(&shared);
+            let task_key = key.clone();
+            let task = handlers.spawn(async move {
+                let response = match &shared.handler {
+                    Some(handler) => match handler(method.clone(), params).await {
+                        Ok(result) => serde_json::json!({ "id": id, "result": result, "error": null }),
+                        Err(error) => serde_json::json!({ "id": id, "result": null, "error": error }),
+                    },
+                    None => serde_json::json!({ "id": id, "result": null, "error": ResponseError::method_not_found(&method) }),
+                };
+                if !id.is_null() {
+                    let mut line = response.to_string();
+                    line.push('\n');
+                    let _ = shared.outbound.send(line);
+                }
+                task_key
+            });
+            active.insert(key, task);
             continue;
         }
         match serde_json::from_value::<ResponseEnvelope>(value) {
@@ -751,6 +774,8 @@ async fn read_loop<R: AsyncRead + Unpin>(mut reader: BufReader<R>, shared: Arc<S
             Err(error) => log::warn!("[alwith-api] frame is neither event nor response: {error}"),
         }
     };
+    handlers.abort_all();
+    while handlers.join_next().await.is_some() {}
     *shared.closed.lock().unwrap() = Some(reason.clone());
     let pending: Vec<_> = shared.pending.lock().unwrap().drain().collect();
     for (_, sender) in pending {
@@ -985,5 +1010,71 @@ mod tests {
         assert_eq!(client.closed().as_deref(), Some("connection closed"));
         assert!(matches!(events.recv().await.unwrap(), ClientEvent::Closed { .. }));
         assert_eq!(client.request("ping", None).await.unwrap_err().code, ResponseError::CONNECTION_LOST);
+    }
+    #[tokio::test]
+    async fn peer_handler_can_request_on_same_connection_and_eof_cancels_it() {
+        let (client_stream, peer_stream) = tokio::io::duplex(8192);
+        let (reader, writer) = tokio::io::split(client_stream);
+        let (peer_reader, mut peer_writer) = tokio::io::split(peer_stream);
+        let slot = Arc::new(std::sync::OnceLock::<std::sync::Weak<RuntimeClient>>::new());
+        let handler_slot = Arc::clone(&slot);
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let dropped = Arc::new(tokio::sync::Notify::new());
+        struct Signal(Arc<tokio::sync::Notify>);
+        impl Drop for Signal {
+            fn drop(&mut self) {
+                self.0.notify_one();
+            }
+        }
+        let handler_entered = Arc::clone(&entered);
+        let handler_dropped = Arc::clone(&dropped);
+        let handler: RequestHandler = Arc::new(move |method, _| {
+            let client = handler_slot.get().unwrap().upgrade().unwrap();
+            let entered = Arc::clone(&handler_entered);
+            let dropped = Arc::clone(&handler_dropped);
+            Box::pin(async move {
+                if method == "nested" {
+                    return client.request("ping", None).await;
+                }
+                let _signal = Signal(dropped);
+                entered.notify_one();
+                std::future::pending().await
+            })
+        });
+        let client = Arc::new(RuntimeClient::over_with_handler(reader, writer, Some(handler)));
+        assert!(slot.set(Arc::downgrade(&client)).is_ok());
+        let mut lines = BufReader::new(peer_reader).lines();
+        peer_writer.write_all(b"{\"id\":101,\"method\":\"nested\"}\n").await.unwrap();
+        let nested: Value = serde_json::from_str(
+            &tokio::time::timeout(std::time::Duration::from_secs(2), lines.next_line())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(nested["method"], "ping");
+        peer_writer
+            .write_all(format!("{}\n", serde_json::json!({"id":nested["id"],"result":"pong"})).as_bytes())
+            .await
+            .unwrap();
+        let response: Value = serde_json::from_str(
+            &tokio::time::timeout(std::time::Duration::from_secs(2), lines.next_line())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(response["id"], 101);
+        assert_eq!(response["result"], "pong");
+        peer_writer.write_all(b"{\"id\":102,\"method\":\"wait\"}\n").await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), entered.notified()).await.unwrap();
+        peer_writer.write_all(b"{\"method\":\"_runtime/cancel\",\"params\":{\"id\":102}}\n").await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), dropped.notified()).await.unwrap();
+        peer_writer.write_all(b"{\"id\":103,\"method\":\"wait\"}\n").await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), entered.notified()).await.unwrap();
+        peer_writer.shutdown().await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), dropped.notified()).await.unwrap();
     }
 }
