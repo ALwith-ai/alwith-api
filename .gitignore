@@ -3,4 +3,5 @@ node_modules/
 
 # Generated npm artifacts
 **/dist/
+/packages/api/rust/
 *.tgz

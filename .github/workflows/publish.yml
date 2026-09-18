@@ -28,13 +28,21 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
-      - run: bun test packages
+      - run: bun test packages scripts/__tests__
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test Rust crate from the npm archive
+        working-directory: packages/api
+        run: |
+          bun pm pack --filename "$RUNNER_TEMP/alwith-api.tgz" --quiet
+          mkdir -p "$RUNNER_TEMP/alwith-api-unpacked"
+          tar -xzf "$RUNNER_TEMP/alwith-api.tgz" -C "$RUNNER_TEMP/alwith-api-unpacked"
+          cargo test --manifest-path "$RUNNER_TEMP/alwith-api-unpacked/package/rust/Cargo.toml" --lib
       - name: tag 必须就是 package.json 里的版本
         run: |
           version=$(node -p "require('./packages/api/package.json').version")
           if [ "$GITHUB_REF_NAME" != "v$version" ]; then
             echo "tag $GITHUB_REF_NAME != v$version(packages/api/package.json)"; exit 1
           fi
-      # prepack 会跑 bun run build,只有 dist 进包(见 scripts/build-npm.ts)
+      # prepack 生成 JS dist 与独立 Rust crate；压缩包内容由 scripts/__tests__ 验证。
       - run: npm publish --access public
         working-directory: packages/api

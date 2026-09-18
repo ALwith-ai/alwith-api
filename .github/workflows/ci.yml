@@ -31,4 +31,12 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
-      - run: bun test packages
+      - run: bun test packages scripts/__tests__
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test Rust crate from the npm archive
+        working-directory: packages/api
+        run: |
+          bun pm pack --filename "$RUNNER_TEMP/alwith-api.tgz" --quiet
+          mkdir -p "$RUNNER_TEMP/alwith-api-unpacked"
+          tar -xzf "$RUNNER_TEMP/alwith-api.tgz" -C "$RUNNER_TEMP/alwith-api-unpacked"
+          cargo test --manifest-path "$RUNNER_TEMP/alwith-api-unpacked/package/rust/Cargo.toml" --lib
