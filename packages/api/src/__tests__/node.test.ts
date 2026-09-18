@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync } from "node:fs"
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { describe, expect, test } from "bun:test"
@@ -35,4 +35,32 @@ describe.skipIf(!binary)("ProcessRuntimeClient", () => {
     await exited
     await expect(port.ping()).rejects.toThrow("exited")
   })
+})
+
+
+describe("ProcessRuntimeClient failed spawn", () => {
+  for (const failure of ["missing", "not-executable"] as const) {
+    test(`${failure} rejects readiness and settles process cleanup once`, async () => {
+      const directory = mkdtempSync(join(tmpdir(), "runtime-spawn-failure-"))
+      const executable = join(directory, "runtime")
+      if (failure === "not-executable") {
+        writeFileSync(executable, "#!/bin/sh\nexit 0\n")
+        chmodSync(executable, 0o600)
+      }
+      const port = new ProcessRuntimeClient({ binary: executable, engines: {}, stderr: "ignore" })
+      let notifications = 0
+      const exited = new Promise<void>(resolve => port.onProcessExit(() => { notifications++; resolve() }))
+      try {
+        await expect(port.ping()).rejects.toThrow()
+        await exited
+        await new Promise(resolve => setTimeout(resolve, 20))
+        expect(notifications).toBe(1)
+        await expect(port.ping()).rejects.toThrow()
+      } finally {
+        port.close()
+        port.kill()
+        rmSync(directory, { recursive: true, force: true })
+      }
+    }, 3000)
+  }
 })

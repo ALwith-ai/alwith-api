@@ -97,7 +97,8 @@ export class ProcessRuntimeClient<Launch = unknown> extends FrameRuntimeClient<L
           reject(error)
         }
       })
-      child.once("exit", (code, signal) => {
+      const finish = (code: number | null, signal: NodeJS.Signals | null) => {
+        if (this.exited) return
         this.exited = { code, signal }
         if (!settled) {
           settled = true
@@ -105,7 +106,11 @@ export class ProcessRuntimeClient<Launch = unknown> extends FrameRuntimeClient<L
         }
         this.rejectPending(`alwith-runtime exited (${describeExit(this.exited)})`)
         for (const handler of this.processExitHandlers) handler(this.exited)
-      })
+      }
+      child.once("exit", finish)
+      // Failed spawn emits error + close, without exit. Notify shutdown waiters
+      // on either terminal event, once; keep exit prompt if descendants hold pipes.
+      child.once("close", finish)
     })
     return this.ready
   }
