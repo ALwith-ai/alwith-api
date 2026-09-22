@@ -413,17 +413,18 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
         ? frame.messageId
         : anonymousMessageId(session, messageKind)
     if (messageKind === "user") {
-      const last = session.items.at(-1)
+      const lastUserIndex = session.items.findLastIndex(item => item.kind === "user")
+      const lastUser = session.items[lastUserIndex]
       const known = session.items.some(item => item.kind === "user" && item.id === messageId)
       // agent 回报刚发出去的那条:本地内容是权威,只认领它的 id。没带 id 的帧没什么可认领。
-      if (!known && messageId === frame.messageId && last?.kind === "user" && last.echo === "pending") {
+      if (!known && messageId === frame.messageId && lastUser?.kind === "user" && lastUser.echo === "pending") {
         const adopted: MessageItem = {
-          ...last,
+          ...lastUser,
           id: messageId,
           echo: "adopted",
-          _meta: mergeMeta(last._meta, frame._meta)
+          _meta: mergeMeta(lastUser._meta, frame._meta)
         }
-        return { ...session, items: replaceItem(session.items, session.items.length - 1, adopted) }
+        return { ...session, items: replaceItem(session.items, lastUserIndex, adopted) }
       }
     }
     return upsertItem<MessageItem>(

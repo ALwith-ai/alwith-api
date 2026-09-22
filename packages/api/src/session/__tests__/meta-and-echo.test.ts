@@ -100,6 +100,25 @@ describe("本地先上屏的用户消息与 agent 回报的认领", () => {
     expect(prompt._meta).toEqual({ alwith: { uuid: "u-7" } })
   })
 
+  test("agent 回报前出现通知时仍认领最后一条用户消息", () => {
+    let session = addPrompt(createSession("s", "/tmp"), [{ type: "text", text: "hello" }], "local-1")
+    session = apply(session, {
+      sessionUpdate: "agent_message_chunk",
+      messageId: "notice-1",
+      content: { type: "text", text: "Warning: model metadata unavailable" }
+    })
+    session = apply(session, {
+      sessionUpdate: "user_message",
+      messageId: "agent-1",
+      content: [{ type: "text", text: "hello" }]
+    })
+
+    expect(session.items.map(entry => entry.id)).toEqual(["agent-1", "notice-1"])
+    const prompt = item<MessageItem>(session, "agent-1")
+    expect(prompt.echo).toBe("adopted")
+    expect(prompt.content).toEqual([{ type: "text", text: "hello" }])
+  })
+
   test("认领之后同 id 的帧只收 _meta —— 拆成多个 chunk 回报的也不会把本地内容改掉", () => {
     let session = addPrompt(createSession("s", "/tmp"), [{ type: "text", text: "hi" }], "local-1")
     session = apply(session, { sessionUpdate: "user_message_chunk", messageId: "a", content: { type: "text", text: "hi" } })
