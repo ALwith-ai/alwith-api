@@ -454,7 +454,7 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
           items: [...session.items.filter(item => item !== acknowledged), {
             ...acknowledged,
             echo: "adopted",
-            _meta: mergeMeta(acknowledged._meta, frame._meta)
+            _meta: !isChunk && frame._meta === null ? null : mergeMeta(acknowledged._meta, frame._meta)
           }]
         }
       }
@@ -466,15 +466,17 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
       base => ({ ...base, kind: messageKind, content: [], echo: null }),
       item =>
         item.echo === "adopted"
-          ? { ...item, _meta: mergeMeta(item._meta, frame._meta) }
+          ? { ...item, _meta: !isChunk && frame._meta === null ? null : mergeMeta(item._meta, frame._meta) }
           : {
               ...item,
               content: isChunk
                 ? appendBlock(item.content, frame.content, messageKind !== "user")
-                : Array.isArray(frame.content)
-                  ? frame.content.slice()
-                  : item.content,
-              _meta: mergeMeta(item._meta, frame._meta)
+                : frame.content === undefined
+                  ? item.content
+                  : frame.content === null
+                    ? []
+                    : frame.content.slice(),
+              _meta: !isChunk && frame._meta === null ? null : mergeMeta(item._meta, frame._meta)
             }
     )
   }
@@ -549,7 +551,7 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
             locations: frame.locations === undefined ? item.locations : (frame.locations ?? []),
             rawInput: frame.rawInput === undefined ? item.rawInput : frame.rawInput,
             rawOutput: frame.rawOutput === undefined ? item.rawOutput : frame.rawOutput,
-            _meta: mergeMeta(item._meta, frame._meta)
+            _meta: frame._meta === null ? null : mergeMeta(item._meta, frame._meta)
           }
           if (frame.status === undefined || frame.status === null) return patched
           // 自己声明了活过回合的工具,状态只认同样声明了的那一帧(见 FoldPolicy.outlivesTurn)。

@@ -47,7 +47,7 @@ describe("_meta 跨帧累积", () => {
     expect(item<MessageItem>(session, "m")._meta).toEqual({ alwith: { model: "opus", uuid: "u-1" } })
   })
 
-  test("帧上缺省或显式 null 都不动已有的 _meta;标量与数组整个替换", () => {
+  test("工具元数据缺省保留、显式 null 清除;标量与数组整个替换", () => {
     let session = createSession("s", "/tmp")
     session = apply(session, {
       sessionUpdate: "tool_call_update",
@@ -56,8 +56,9 @@ describe("_meta 跨帧累积", () => {
       _meta: { alwith: { tags: ["a"], n: 1 } }
     })
     session = apply(session, { sessionUpdate: "tool_call_update", toolCallId: "t", status: "in_progress" })
-    session = apply(session, { sessionUpdate: "tool_call_update", toolCallId: "t", _meta: null })
     expect(item<ToolItem>(session, "t")._meta).toEqual({ alwith: { tags: ["a"], n: 1 } })
+    session = apply(session, { sessionUpdate: "tool_call_update", toolCallId: "t", _meta: null })
+    expect(item<ToolItem>(session, "t")._meta).toBeNull()
     session = apply(session, { sessionUpdate: "tool_call_update", toolCallId: "t", _meta: { alwith: { tags: ["b"], n: 2 } } })
     expect(item<ToolItem>(session, "t")._meta).toEqual({ alwith: { tags: ["b"], n: 2 } })
   })
@@ -228,3 +229,19 @@ test("notice neither enters history nor changes task state", () => {
   const session = createSession("s", "/tmp")
   expect(apply(session, { sessionUpdate: "notice", title: "Advisory", severity: "warning" })).toBe(session)
 })
+
+for (const sessionUpdate of ["user_message", "agent_message", "agent_thought"]) {
+  test(`${sessionUpdate} omitted fields preserve, null clears, later chunks append`, () => {
+    let session = createSession("s", "/tmp")
+    session = apply(session, { sessionUpdate, messageId: "m", content: [{ type: "text", text: "old" }], _meta: { alwith: { uuid: "old" } } })
+    const before = item<MessageItem>(session, "m")
+    session = apply(session, { sessionUpdate, messageId: "m" })
+    expect(item<MessageItem>(session, "m").content).toEqual(before.content)
+    expect(item<MessageItem>(session, "m")._meta).toEqual(before._meta)
+    session = apply(session, { sessionUpdate, messageId: "m", content: null, _meta: null })
+    expect(item<MessageItem>(session, "m").content).toEqual([])
+    expect(item<MessageItem>(session, "m")._meta).toBeNull()
+    session = apply(session, { sessionUpdate: `${sessionUpdate}_chunk`, messageId: "m", content: { type: "text", text: "new" } })
+    expect(item<MessageItem>(session, "m").content).toEqual([{ type: "text", text: "new" }])
+  })
+}
