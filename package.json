@@ -9,7 +9,7 @@
     "test": "bun test packages"
   },
   "devDependencies": {
-    "@agentclientprotocol/sdk": "1.4.0",
+    "@agentclientprotocol/sdk": "1.5.1",
     "@tauri-apps/api": "^2",
     "@types/bun": "^1",
     "@types/node": "^24",

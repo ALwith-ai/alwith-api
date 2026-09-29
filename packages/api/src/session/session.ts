@@ -24,11 +24,11 @@ export type MessageItem = ItemBase & {
   content: acp.ContentBlock[]
   /**
    * 本地先上屏的用户消息与 agent 回报之间的对账。协议要求 agent 把用户消息按它在历史里的
-   * 位置回报出来(`user_message` + messageId;codex 会发,alwith-cli 不发)。本地这条已经在,
-   * 回报到达时只认领它的 id,不另起一条:`pending` 等回报,`adopted` 已认领、之后同 id 的帧
+   * 位置回报出来(`user_message` + messageId)。本地这条已经在,
+   * 用各自 prompt 回执的 messageId 精确认领:`pending` 等回报,`adopted` 已认领、之后同 id 的帧
    * 只收 `_meta`。agent 自己的消息恒为 null。见 `addPrompt`。
    */
-  echo: "pending" | "adopted" | null
+  echo: "pending" | "acknowledged" | "adopted" | null
 }
 export type ToolItem = ItemBase & {
   kind: "tool"
@@ -368,7 +368,7 @@ export function markInterrupted(session: Session, policy: FoldPolicy = {}): Sess
 
 /**
  * 用户刚发出的那条消息,先上屏。协议里用户消息由 agent 回报,但等回报再显示,用户会以为没发出去;
- * alwith-cli 更是从不回报。所以本地先记一条 `echo: "pending"`,回报到了再认领(见 `MessageItem.echo`)。
+ * 本地先记一条 `echo: "pending"`,由 prompt 回执精确认领(见 `MessageItem.echo`)。
  */
 export function addPrompt(session: Session, content: acp.ContentBlock[], id: string = crypto.randomUUID()): Session {
   const at = nextStamp(session)
@@ -382,6 +382,40 @@ export function addPrompt(session: Session, content: acp.ContentBlock[], id: str
     echo: "pending"
   }
   return { ...session, clock: at, items: [...session.items, item] }
+}
+
+/** Match a local optimistic message using its own prompt response, never arrival order. */
+export function acknowledgePrompt(session: Session, localId: string, messageId: string): Session {
+  const local = session.items.find(item => item.kind === "user" && item.id === localId)
+  if (local === undefined || local.kind !== "user" || local.echo !== "pending") {
+    throw new Error(`Unknown pending prompt ${localId}`)
+  }
+  const remote = session.items.find(item => item.kind === "user" && item.id === messageId && item !== local)
+  if (remote !== undefined && (remote.kind !== "user" || remote.echo !== null)) {
+    throw new Error(`Message ${messageId} already belongs to another prompt`)
+  }
+  const adopted: MessageItem = {
+    ...local,
+    id: messageId,
+    echo: remote === undefined ? "acknowledged" : "adopted",
+    _meta: mergeMeta(local._meta, remote === undefined ? null : remote._meta)
+  }
+  const items = remote === undefined
+    ? session.items.map(item => item === local ? adopted : item)
+    : session.items.filter(item => item !== local).map(item => item === remote ? adopted : item)
+  const turnUsage = { ...session.turnUsage }
+  const turnEndedAt = { ...session.turnEndedAt }
+  if (localId !== messageId) {
+    if (localId in turnUsage) {
+      turnUsage[messageId] = turnUsage[localId]!
+      delete turnUsage[localId]
+    }
+    if (localId in turnEndedAt) {
+      turnEndedAt[messageId] = turnEndedAt[localId]!
+      delete turnEndedAt[localId]
+    }
+  }
+  return { ...session, items, turnUsage, turnEndedAt }
 }
 
 /**
@@ -413,18 +447,16 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
         ? frame.messageId
         : anonymousMessageId(session, messageKind)
     if (messageKind === "user") {
-      const lastUserIndex = session.items.findLastIndex(item => item.kind === "user")
-      const lastUser = session.items[lastUserIndex]
-      const known = session.items.some(item => item.kind === "user" && item.id === messageId)
-      // agent 回报刚发出去的那条:本地内容是权威,只认领它的 id。没带 id 的帧没什么可认领。
-      if (!known && messageId === frame.messageId && lastUser?.kind === "user" && lastUser.echo === "pending") {
-        const adopted: MessageItem = {
-          ...lastUser,
-          id: messageId,
-          echo: "adopted",
-          _meta: mergeMeta(lastUser._meta, frame._meta)
+      const acknowledged = session.items.find(item => item.kind === "user" && item.id === messageId && item.echo === "acknowledged")
+      if (acknowledged !== undefined && acknowledged.kind === "user") {
+        return {
+          ...session,
+          items: [...session.items.filter(item => item !== acknowledged), {
+            ...acknowledged,
+            echo: "adopted",
+            _meta: mergeMeta(acknowledged._meta, frame._meta)
+          }]
         }
-        return { ...session, items: replaceItem(session.items, lastUserIndex, adopted) }
       }
     }
     return upsertItem<MessageItem>(
@@ -464,7 +496,7 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
         const stopReason = idle.stopReason ?? "end_turn"
         const failed = stopReason === "_error" || stopReason === "refusal" || stopReason === "max_tokens"
         const usage = idle.usage ?? null
-        const turnUser = session.items.findLast(item => item.kind === "user")
+        const turnUser = session.items.findLast(item => item.kind === "user" && item.echo !== "pending")
         const sealed = sealTurn(session, options.policy)
         const endedAt = nextStamp(sealed)
         return {

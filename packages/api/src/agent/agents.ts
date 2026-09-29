@@ -80,6 +80,7 @@ export class Agent {
   private unlisten: (() => void) | null = null
   private readonly resolveExited: () => void
   private readonly goneListeners = new Set<() => void>()
+  private readonly failureListeners = new Set<(error: Error) => void>()
 
   /** @internal */
   constructor(port: AgentPort<unknown>, agentId: string, engine: string | null, initialized: unknown) {
@@ -109,6 +110,12 @@ export class Agent {
    */
   fail(reason: string): void {
     this.failInflight(new AgentGoneError(this.agentId, reason))
+  }
+
+  /** Requests and receipt-completed turns both terminate when this connection becomes unavailable. */
+  onFailure(listener: (error: Error) => void): () => void {
+    this.failureListeners.add(listener)
+    return () => this.failureListeners.delete(listener)
   }
 
   /** @internal 进程没了的那一刻同步通知(exit 事件到达的同一个调用栈里),`exited` 是它的 Promise 版。 */
@@ -237,6 +244,7 @@ export class Agent {
   }
 
   private failInflight(error: Error): void {
+    for (const listener of this.failureListeners) listener(error)
     for (const fail of [...this.inflight]) fail(error)
     this.inflight.clear()
   }

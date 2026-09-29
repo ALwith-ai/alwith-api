@@ -51,10 +51,27 @@ for (const turn of store.turns(sessionId)) {
 
 ## 用户刚发的那条，先上屏
 
-协议里用户消息由 agent 回报（`user_message` + messageId），但等回报再显示，用户会以为没发出去；
-alwith-cli 更是从不回报。所以发送时先 `store.addPrompt(id, content)` 放一条本地的，标 `echo: "pending"`；
-codex 的回报到了，包只认领它的 id，不另起一条，本地内容是权威。alwith-cli 不回报，pending 一直挂着，
-没有副作用。
+发送时用 `store.addPrompt(id, content)` 立即显示本地消息，保存返回的本地 ID。
+`session/prompt` 成功只表示消息已插入，收到回执后调用
+`store.acknowledgePrompt(sessionId, localId, response.messageId)` 精确认领。回显与回执可任意先后，
+相同内容和并发请求也不能按最后一条消息或内容猜测。未插入的本地消息不接收正在生成的回答。
+
+连接层使用 `PromptTracker` 把插入回执与生成完成分开：
+
+```ts
+const prompts = new PromptTracker()
+// 实时 session/update 同时送给 prompts.accept(sessionId, update) 和 store.accept。
+const completion = await prompts.run(
+  sessionId,
+  () => agent.request("session/prompt", { sessionId, prompt: content }),
+  response => store.acknowledgePrompt(sessionId, localId, response.messageId)
+)
+// 此处已收到对应的 idle；stopReason、usage 和轮末 _meta 都从 completion 读取。
+// 断线、放弃连接或替换进程时调用 prompts.fail(error)，拒绝尚未完成的等待。
+```
+
+`notice` 仅为实时提醒，不改变 Session，不进入聊天历史或回放。回放之前使用
+`beginReplay()` 清空已折叠历史，避免重新收到相同 ID 的 chunk 时重复追加。
 
 ## 待办簿:agent 等你回答的请求
 

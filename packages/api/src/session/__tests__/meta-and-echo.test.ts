@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { addPrompt, applyUpdate, createSession, type MessageItem, type ToolItem } from "../session"
+import { acknowledgePrompt, addPrompt, applyUpdate, createSession, type MessageItem, type ToolItem } from "../session"
 import { SessionStore } from "../store"
 
 function apply(session: ReturnType<typeof createSession>, update: Record<string, unknown>) {
@@ -93,6 +93,7 @@ describe("本地先上屏的用户消息与 agent 回报的认领", () => {
       content: [{ type: "text", text: "Resource link: name=file, uri=file:///f\nhi" }],
       _meta: { alwith: { uuid: "u-7" } }
     })
+    session = acknowledgePrompt(session, "local-1", "agent-7")
     expect(session.items).toHaveLength(1)
     const prompt = item<MessageItem>(session, "agent-7")
     expect(prompt.echo).toBe("adopted")
@@ -100,7 +101,7 @@ describe("本地先上屏的用户消息与 agent 回报的认领", () => {
     expect(prompt._meta).toEqual({ alwith: { uuid: "u-7" } })
   })
 
-  test("agent 回报前出现通知时仍认领最后一条用户消息", () => {
+  test("agent 回报前出现通知时仍按回执精确认领", () => {
     let session = addPrompt(createSession("s", "/tmp"), [{ type: "text", text: "hello" }], "local-1")
     session = apply(session, {
       sessionUpdate: "agent_message_chunk",
@@ -113,7 +114,8 @@ describe("本地先上屏的用户消息与 agent 回报的认领", () => {
       content: [{ type: "text", text: "hello" }]
     })
 
-    expect(session.items.map(entry => entry.id)).toEqual(["agent-1", "notice-1"])
+    session = acknowledgePrompt(session, "local-1", "agent-1")
+    expect(session.items.map(entry => entry.id)).toEqual(["notice-1", "agent-1"])
     const prompt = item<MessageItem>(session, "agent-1")
     expect(prompt.echo).toBe("adopted")
     expect(prompt.content).toEqual([{ type: "text", text: "hello" }])
@@ -121,6 +123,7 @@ describe("本地先上屏的用户消息与 agent 回报的认领", () => {
 
   test("认领之后同 id 的帧只收 _meta —— 拆成多个 chunk 回报的也不会把本地内容改掉", () => {
     let session = addPrompt(createSession("s", "/tmp"), [{ type: "text", text: "hi" }], "local-1")
+    session = acknowledgePrompt(session, "local-1", "a")
     session = apply(session, { sessionUpdate: "user_message_chunk", messageId: "a", content: { type: "text", text: "hi" } })
     session = apply(session, {
       sessionUpdate: "user_message_chunk",
@@ -157,7 +160,7 @@ describe("本地先上屏的用户消息与 agent 回报的认领", () => {
     expect(item<MessageItem>(session, "h").content).toHaveLength(3)
   })
 
-  test("agent 从不回报(alwith-cli)时 pending 一直挂着,不影响后面的回合", () => {
+  test("尚未收到回执的消息保持 pending,不被其他消息认领", () => {
     let session = addPrompt(createSession("s", "/tmp"), [{ type: "text", text: "one" }], "l1")
     session = apply(session, { sessionUpdate: "agent_message_chunk", messageId: "a1", content: { type: "text", text: "1" } })
     session = apply(session, { sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" })
@@ -172,6 +175,56 @@ describe("本地先上屏的用户消息与 agent 回报的认领", () => {
     const localId = store.addPrompt("s", [{ type: "text", text: "hi" }])
     expect(store.get("s").items[0]?.id).toBe(localId)
     store.accept("s", { sessionUpdate: "user_message", messageId: "agent-1", content: [] } as never)
+    store.acknowledgePrompt("s", localId, "agent-1")
     expect(store.get("s").items.map(entry => entry.id)).toEqual(["agent-1"])
   })
+})
+
+test("identical concurrent prompts are matched by response, including reversed replies", () => {
+  let session = addPrompt(createSession("s", "/tmp"), [{ type: "text", text: "same" }], "local-1")
+  session = addPrompt(session, [{ type: "text", text: "same" }], "local-2")
+  session = apply(session, { sessionUpdate: "user_message", messageId: "remote-1", content: [] })
+  session = apply(session, { sessionUpdate: "user_message", messageId: "remote-2", content: [] })
+  expect(item<MessageItem>(session, "local-1").echo).toBe("pending")
+  expect(item<MessageItem>(session, "local-2").echo).toBe("pending")
+  session = acknowledgePrompt(session, "local-2", "remote-2")
+  session = acknowledgePrompt(session, "local-1", "remote-1")
+  expect(session.items.map(item => item.id)).toEqual(["remote-1", "remote-2"])
+  expect(session.items.every(item => item.kind === "user" && item.content[0]?.type === "text")).toBe(true)
+})
+
+test("an unrelated live user message never consumes an optimistic prompt", () => {
+  let session = addPrompt(createSession("s", "/tmp"), [], "local")
+  session = apply(session, { sessionUpdate: "user_message", messageId: "other-client", content: [] })
+  session = acknowledgePrompt(session, "local", "own")
+  expect(session.items.map(item => item.id)).toEqual(["own", "other-client"])
+})
+
+test("the same remote ID cannot be assigned to two requests", () => {
+  let session = addPrompt(createSession("s", "/tmp"), [], "first")
+  session = addPrompt(session, [], "second")
+  session = acknowledgePrompt(session, "first", "remote")
+  expect(() => acknowledgePrompt(session, "second", "remote")).toThrow("already belongs")
+})
+
+test("queued local messages do not capture the current answer or its idle usage", () => {
+  const store = new SessionStore()
+  store.set(createSession("s", "/tmp"))
+  const first = store.addPrompt("s", [])
+  store.acknowledgePrompt("s", first, "a")
+  store.accept("s", { sessionUpdate: "user_message", messageId: "a", content: [] } as never)
+  const second = store.addPrompt("s", [])
+  store.accept("s", { sessionUpdate: "agent_message_chunk", messageId: "answer", content: { type: "text", text: "first answer" } } as never)
+  store.accept("s", { sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" } as never)
+  const [a, b] = store.turns("s")
+  expect(a?.entries.map(item => item.id)).toEqual(["answer"])
+  expect(a?.endedAt).not.toBeNull()
+  expect(b?.prompt?.id).toBe(second)
+  expect(b?.entries).toEqual([])
+  expect(b?.endedAt).toBeNull()
+})
+
+test("notice neither enters history nor changes task state", () => {
+  const session = createSession("s", "/tmp")
+  expect(apply(session, { sessionUpdate: "notice", title: "Advisory", severity: "warning" })).toBe(session)
 })

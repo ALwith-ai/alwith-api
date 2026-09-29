@@ -5,7 +5,7 @@
     "": {
       "name": "alwith-packages",
       "devDependencies": {
-        "@agentclientprotocol/sdk": "1.4.0",
+        "@agentclientprotocol/sdk": "1.5.1",
         "@tauri-apps/api": "^2",
         "@types/bun": "^1",
         "@types/node": "^24",
@@ -15,9 +15,9 @@
     },
     "packages/api": {
       "name": "@alwith/api",
-      "version": "0.1.0",
+      "version": "0.1.7",
       "peerDependencies": {
-        "@agentclientprotocol/sdk": ">=1.4.0",
+        "@agentclientprotocol/sdk": ">=1.5.1",
         "@tauri-apps/api": ">=2",
       },
       "optionalPeers": [
@@ -26,7 +26,7 @@
     },
   },
   "packages": {
-    "@agentclientprotocol/sdk": ["@agentclientprotocol/sdk@1.4.0", "", { "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" } }, "sha512-/eufudw+aFY1LKLolT6yFE6UMmYRl7fMJ/DEONSIyR6wI3slHWITBsANRGqXEY8FRzqUxwh7QEaGiZHcJPVThg=="],
+    "@agentclientprotocol/sdk": ["@agentclientprotocol/sdk@1.5.1", "", { "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" } }, "sha512-nSUIrC1fOR9+ppKfx9KdwjBBND2sAPzFHo4yVQrGbXZHnayUYpwL8CDVR5LSxbapY/oKMOzNP0wvwfyx3PS2KA=="],
 
     "@alwith/api": ["@alwith/api@workspace:packages/api"],
 

@@ -3,7 +3,7 @@
 // 终端块单独存(不进 `items`):它的输出是按字节流来的,一个多字节字符可能跨两个 chunk,
 // 必须由同一个 `TextDecoder` 接着解 —— 这是纯 reducer 做不到的那一点状态。
 import type * as acp from "@agentclientprotocol/sdk/experimental/v2"
-import { addPrompt, applyUpdate, type FoldPolicy, markInterrupted, type Session } from "./session"
+import { acknowledgePrompt, addPrompt, applyUpdate, type FoldPolicy, markInterrupted, type Session } from "./session"
 import { type Turn, turns } from "./turns"
 
 function decodeBase64(data: string): Uint8Array {
@@ -78,6 +78,10 @@ export class SessionStore {
     const promptId = crypto.randomUUID()
     this.sessions.set(id, addPrompt(this.get(id), content, promptId))
     return promptId
+  }
+
+  acknowledgePrompt(id: string, localId: string, messageId: string): void {
+    this.sessions.set(id, acknowledgePrompt(this.get(id), localId, messageId))
   }
 
   /** 这条会话按回合分组,带上 store 自己的判据。 */

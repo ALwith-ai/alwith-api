@@ -301,7 +301,9 @@ describe("结束时刻", () => {
   test("回合收尾时按起这一轮的用户消息记下时刻,turns() 里能读到", async () => {
     const store = new SessionStore()
     store.set(createSession("s", "/tmp"))
-    store.addPrompt("s", [{ type: "text", text: "go" }])
+    const localId = store.addPrompt("s", [{ type: "text", text: "go" }])
+    store.acknowledgePrompt("s", localId, "user")
+    store.accept("s", { sessionUpdate: "user_message", messageId: "user", content: [] } as never)
     store.accept("s", { sessionUpdate: "agent_message_chunk", messageId: "a", content: { type: "text", text: "ok" } } as never)
     expect(store.turns("s")[0]?.endedAt).toBeNull()
     store.accept("s", { sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" } as never)
@@ -314,7 +316,9 @@ describe("结束时刻", () => {
   test("重放从头开始时上一世的回合时刻与用量一起清掉", () => {
     const store = new SessionStore()
     store.set(createSession("s", "/tmp"))
-    store.addPrompt("s", [{ type: "text", text: "go" }])
+    const localId = store.addPrompt("s", [{ type: "text", text: "go" }])
+    store.acknowledgePrompt("s", localId, "user")
+    store.accept("s", { sessionUpdate: "user_message", messageId: "user", content: [] } as never)
     store.accept("s", { sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" } as never)
     store.beginReplay("s")
     expect(store.get("s").turnEndedAt).toEqual({})
@@ -326,7 +330,9 @@ describe("时刻严格递增", () => {
   test("同一毫秒里来的几件事也分得清先后:收尾前的条目 < 收尾时刻 < 收尾后的条目", () => {
     const store = new SessionStore()
     store.set(createSession("s", "/tmp"))
-    store.addPrompt("s", [{ type: "text", text: "go" }])
+    const localId = store.addPrompt("s", [{ type: "text", text: "go" }])
+    store.acknowledgePrompt("s", localId, "user")
+    store.accept("s", { sessionUpdate: "user_message", messageId: "user", content: [] } as never)
     store.accept("s", { sessionUpdate: "agent_message_chunk", messageId: "a", content: { type: "text", text: "1" } } as never)
     store.accept("s", { sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" } as never)
     store.accept("s", { sessionUpdate: "agent_message_chunk", messageId: "b", content: { type: "text", text: "2" } } as never)
@@ -349,7 +355,9 @@ describe("收尾时刻只记第一次", () => {
   test("用户 Stop 之后 agent 自己的 idle 再来,这一轮仍结束于用户停下的那一刻", () => {
     const store = new SessionStore()
     store.set(createSession("s", "/tmp"))
-    store.addPrompt("s", [{ type: "text", text: "go" }])
+    const localId = store.addPrompt("s", [{ type: "text", text: "go" }])
+    store.acknowledgePrompt("s", localId, "user")
+    store.accept("s", { sessionUpdate: "user_message", messageId: "user", content: [] } as never)
     store.accept("s", { sessionUpdate: "state_update", state: "idle", stopReason: "cancelled" } as never)
     const first = store.turns("s")[0]!.endedAt
     store.accept("s", { sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" } as never)

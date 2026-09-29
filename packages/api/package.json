@@ -1,6 +1,6 @@
 {
   "name": "@alwith/api",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "description": "ALwith from the app side: the Runtime client, the agents you hold, and ACP session state",
   "type": "module",
   "main": "./dist/index.js",
@@ -57,7 +57,7 @@
     "rust"
   ],
   "peerDependencies": {
-    "@agentclientprotocol/sdk": ">=1.4.0",
+    "@agentclientprotocol/sdk": ">=1.5.1",
     "@tauri-apps/api": ">=2"
   },
   "peerDependenciesMeta": {
