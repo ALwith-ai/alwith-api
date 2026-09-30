@@ -15,7 +15,8 @@ log = { version = "0.4", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 specta = { version = "=2.0.0-rc.25", features = ["derive", "serde_json"] }
-# 只为 `#[specta(type = Unknown)]`:JSON 值在 TS 侧就是 unknown,不要被展开成 serde_json 的内部枚举。
+# Only for `#[specta(type = Unknown)]`: a JSON value is just `unknown` on the TS side; don't expand
+# it into serde_json's internal enum.
 specta-typescript = "=0.0.12"
 tokio = { version = "1", features = ["full"], optional = true }
 

@@ -12,8 +12,8 @@ function item<T extends MessageItem | ToolItem>(session: ReturnType<typeof creat
   return found as T
 }
 
-describe("_meta 跨帧累积", () => {
-  test("同一条目多帧的 _meta 逐层合并,后到的键覆盖先到的 —— 芯把条目级的事实摊在不同帧上发", () => {
+describe("_meta accumulates across frames", () => {
+  test("_meta from several frames of one item merges layer by layer, later keys overriding earlier ones; engines spread item-level facts across frames", () => {
     let session = createSession("s", "/tmp")
     session = apply(session, {
       sessionUpdate: "tool_call_update",
@@ -33,7 +33,7 @@ describe("_meta 跨帧累积", () => {
     })
   })
 
-  test("消息的多个 chunk 同样累积:uuid 在末帧、model 在首帧,两样都留下", () => {
+  test("message chunks accumulate the same way: uuid on the last frame, model on the first, both kept", () => {
     let session = createSession("s", "/tmp")
     const chunk = (text: string, _meta: Record<string, unknown>) =>
       apply(session, {
@@ -47,7 +47,7 @@ describe("_meta 跨帧累积", () => {
     expect(item<MessageItem>(session, "m")._meta).toEqual({ alwith: { model: "opus", uuid: "u-1" } })
   })
 
-  test("工具元数据缺省保留、显式 null 清除;标量与数组整个替换", () => {
+  test("tool metadata: omitted keeps, explicit null clears; scalars and arrays are replaced whole", () => {
     let session = createSession("s", "/tmp")
     session = apply(session, {
       sessionUpdate: "tool_call_update",
@@ -63,7 +63,7 @@ describe("_meta 跨帧累积", () => {
     expect(item<ToolItem>(session, "t")._meta).toEqual({ alwith: { tags: ["b"], n: 2 } })
   })
 
-  test("计划与压缩条目也带 _meta —— alwith-cli 把落盘的时间戳与 compact_metadata 放在那里", () => {
+  test("plan and compaction items carry _meta too; alwith-cli puts the persisted timestamps and compact_metadata there", () => {
     let session = createSession("s", "/tmp")
     session = apply(session, {
       sessionUpdate: "compaction_update",
@@ -77,8 +77,8 @@ describe("_meta 跨帧累积", () => {
   })
 })
 
-describe("本地先上屏的用户消息与 agent 回报的认领", () => {
-  test("addPrompt 立刻放一条 pending 的用户消息,内容就是用户发的", () => {
+describe("locally shown user messages and their claim by the agent's echo", () => {
+  test("addPrompt immediately adds a pending user message with exactly what the user sent", () => {
     const session = addPrompt(createSession("s", "/tmp"), [{ type: "text", text: "hi" }], "local-1")
     const prompt = item<MessageItem>(session, "local-1")
     expect(prompt.kind).toBe("user")
@@ -86,7 +86,7 @@ describe("本地先上屏的用户消息与 agent 回报的认领", () => {
     expect(prompt.replayed).toBe(false)
   })
 
-  test("agent 回报时只认领 id,不另起一条,本地内容是权威(mention / 图片形态都对)", () => {
+  test("the agent's echo only claims the id without adding another item; local content is authoritative (mentions and images alike)", () => {
     let session = addPrompt(createSession("s", "/tmp"), [{ type: "text", text: "@file hi" }], "local-1")
     session = apply(session, {
       sessionUpdate: "user_message",
@@ -102,7 +102,7 @@ describe("本地先上屏的用户消息与 agent 回报的认领", () => {
     expect(prompt._meta).toEqual({ alwith: { uuid: "u-7" } })
   })
 
-  test("agent 回报前出现通知时仍按回执精确认领", () => {
+  test("a notification before the agent's echo still claims precisely by receipt", () => {
     let session = addPrompt(createSession("s", "/tmp"), [{ type: "text", text: "hello" }], "local-1")
     session = apply(session, {
       sessionUpdate: "agent_message_chunk",
@@ -122,7 +122,7 @@ describe("本地先上屏的用户消息与 agent 回报的认领", () => {
     expect(prompt.content).toEqual([{ type: "text", text: "hello" }])
   })
 
-  test("认领之后同 id 的帧只收 _meta —— 拆成多个 chunk 回报的也不会把本地内容改掉", () => {
+  test("after the claim, frames with the same id only contribute _meta; an echo split into chunks does not change local content", () => {
     let session = addPrompt(createSession("s", "/tmp"), [{ type: "text", text: "hi" }], "local-1")
     session = acknowledgePrompt(session, "local-1", "a")
     session = apply(session, { sessionUpdate: "user_message_chunk", messageId: "a", content: { type: "text", text: "hi" } })
@@ -138,20 +138,20 @@ describe("本地先上屏的用户消息与 agent 回报的认领", () => {
     expect(prompt._meta).toEqual({ alwith: { timestamp: "t" } })
   })
 
-  test("没有 pending 的本地消息时,agent 的用户消息照常另起一条 —— 历史回放就是这样", () => {
+  test("without a pending local message the agent's user message becomes a new item, as in history replay", () => {
     let session = createSession("s", "/tmp")
     session = apply(session, { sessionUpdate: "user_message_chunk", messageId: "h1", content: { type: "text", text: "old" } })
     session = apply(session, { sessionUpdate: "user_message_chunk", messageId: "h1", content: { type: "text", text: "er" } })
     const prompt = item<MessageItem>(session, "h1")
     expect(prompt.echo).toBeNull()
-    // 用户消息的 chunk 是整块回放,不是流式增量:各是各的块
+    // User message chunks are whole-block replays, not streaming deltas: each is its own block
     expect(prompt.content).toEqual([
       { type: "text", text: "old" },
       { type: "text", text: "er" }
     ])
   })
 
-  test("用户消息回放时每个内容块各是一帧,资源链接不会粘成一行", () => {
+  test("on user message replay each content block is its own frame, so resource links do not run into one line", () => {
     let session = createSession("s", "/tmp")
     const chunk = (text: string) =>
       apply(session, { sessionUpdate: "user_message_chunk", messageId: "h", content: { type: "text", text } })
@@ -161,7 +161,7 @@ describe("本地先上屏的用户消息与 agent 回报的认领", () => {
     expect(item<MessageItem>(session, "h").content).toHaveLength(3)
   })
 
-  test("尚未收到回执的消息保持 pending,不被其他消息认领", () => {
+  test("a message without a receipt stays pending and is not claimed by other messages", () => {
     let session = addPrompt(createSession("s", "/tmp"), [{ type: "text", text: "one" }], "l1")
     session = apply(session, { sessionUpdate: "agent_message_chunk", messageId: "a1", content: { type: "text", text: "1" } })
     session = apply(session, { sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" })
@@ -170,7 +170,7 @@ describe("本地先上屏的用户消息与 agent 回报的认领", () => {
     expect(item<MessageItem>(session, "l1").echo).toBe("pending")
   })
 
-  test("SessionStore.addPrompt 返回本地 id,回报到达后 items 里换成 agent 的 id", () => {
+  test("SessionStore.addPrompt returns a local id, replaced by the agent's id in items once the echo arrives", () => {
     const store = new SessionStore()
     store.set(createSession("s", "/tmp"))
     const localId = store.addPrompt("s", [{ type: "text", text: "hi" }])

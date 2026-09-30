@@ -1,10 +1,10 @@
-# npm 产物边界
+# npm artifact boundary
 
-- `@alwith/api` 的首次 npm 版本是 `0.1.0`；后续修复递增 patch，不自动升级 minor/major。Rust/Runtime 版本独立，本次不重编号。
-- 在仓库根目录 `bun install --frozen-lockfile`，然后进入 `packages/api` 执行 `bun run build` 或 `bun pm pack`。prepack 自动重建。
-- 包只导出 `dist` 中的压缩 ESM、`.d.ts` 及明确允许的文档。不要发布 `src`、测试、source map 或构建脚本。
-- 使用独立固定的 `typescript-compiler` 生成 JS/声明，Bun 压缩各模块；不把 peer dependencies 打进产物。
-- 本地 file 依赖消费的也是 dist；修改源码后先重新 build，新建 dist 后需刷新消费者的 Bun 安装链接。
-- 当前保留 `private: true` 作为发布锁。专有开发与再分发许可、第三方声明、组织权限、实际 tarball 审核完成后才解除并发布；不能把无许可证视为已经授予商用/再分发权利。
-- JS 压缩不是加密。`.d.ts` 是公开接口，必须保留；原始 TS 实现仍在私有仓。
-- 逐步开源按包、按版本决定；新许可不抹除旧版本已授出的权利。公开 npm 不等于公开仓库。
+- The first npm version of `@alwith/api` is `0.1.0`; later fixes bump the patch version and never auto-upgrade minor/major. Rust/Runtime versions are independent and are not renumbered this time.
+- Run `bun install --frozen-lockfile` at the repo root, then run `bun run build` or `bun pm pack` in `packages/api`. prepack rebuilds automatically.
+- The package exports only the minified ESM and `.d.ts` files in `dist` plus explicitly allowed docs. Do not publish `src`, tests, source maps or build scripts.
+- JS and declarations are generated with a separately pinned `typescript-compiler`, and Bun minifies each module; peer dependencies are not bundled into the output.
+- Local file dependencies also consume dist; rebuild after changing the source, and refresh the consumer's Bun install links after dist is recreated.
+- `private: true` is kept as a publish lock for now. Remove it and publish only after the proprietary development and redistribution license, third-party notices, organization permissions and a review of the actual tarball are complete; the absence of a license must not be treated as having granted commercial or redistribution rights.
+- Minifying JS is not encryption. `.d.ts` files are the public interface and must be kept; the original TS implementation stays in the private repo.
+- Open-sourcing proceeds gradually, decided per package and per version; a new license does not erase rights already granted for older versions. Publishing on public npm does not mean opening the repository.

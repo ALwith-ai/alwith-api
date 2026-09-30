@@ -26,7 +26,7 @@ function run(session: Session, toolCallId: string, extra: Record<string, unknown
   return feed(session, { sessionUpdate: "tool_call_update", toolCallId, status: "in_progress", ...extra })
 }
 
-/** alwith-cli 把派工具的人放在 `_meta.claudeCode.parentToolUseId`。 */
+/** alwith-cli puts the tool that launched a step in `_meta.claudeCode.parentToolUseId`. */
 const alwith: FoldPolicy = {
   parentOf: tool => {
     const claudeCode = tool._meta?.claudeCode
@@ -40,8 +40,8 @@ const alwith: FoldPolicy = {
 
 const launchedBy = (id: string) => ({ _meta: { claudeCode: { parentToolUseId: id } } })
 
-describe("按回合分组", () => {
-  test("一条用户消息起一轮,它之后的东西都归这一轮", () => {
+describe("grouping by turn", () => {
+  test("a user message starts a turn and everything after it belongs to that turn", () => {
     let session = createSession("s", "/tmp")
     session = ask(session, "u1", "做个页面")
     session = say(session, "a1", "好")
@@ -57,7 +57,7 @@ describe("按回合分组", () => {
     expect(result[1]!.entries.map(entry => entry.id)).toEqual(["a2"])
   })
 
-  test("历史从 agent 的话开头时,第一轮没有用户消息", () => {
+  test("when history starts with the agent speaking, the first turn has no user message", () => {
     let session = createSession("s", "/tmp")
     session = say(session, "a0", "接着上次说")
     session = ask(session, "u1", "继续")
@@ -68,11 +68,11 @@ describe("按回合分组", () => {
     expect(result[0]!.entries.map(entry => entry.id)).toEqual(["a0"])
   })
 
-  test("空会话没有回合", () => {
+  test("an empty session has no turns", () => {
     expect(turns(createSession("s", "/tmp"))).toEqual([])
   })
 
-  test("这一轮的用量挂在这一轮上", () => {
+  test("a turn's usage is attached to that turn", () => {
     let session = createSession("s", "/tmp")
     session = ask(session, "u1", "算一下")
     session = say(session, "a1", "好")
@@ -88,8 +88,8 @@ describe("按回合分组", () => {
   })
 })
 
-describe("工具认亲", () => {
-  test("subagent 派出去的子步骤收进它的 children,不在顶层重复出现", () => {
+describe("tool parentage", () => {
+  test("steps launched by a subagent go into its children and do not repeat at the top level", () => {
     let session = createSession("s", "/tmp")
     session = ask(session, "u1", "查一下")
     session = run(session, "agent-1", { name: "Agent" })
@@ -103,7 +103,7 @@ describe("工具认亲", () => {
     expect(parent.kind === "tool" && parent.children.map(child => child.id)).toEqual(["grep-1", "read-1"])
   })
 
-  test("不给判据就全是平的 —— 包不猜方言", () => {
+  test("without a rule everything stays flat; the package does not guess dialects", () => {
     let session = createSession("s", "/tmp")
     session = ask(session, "u1", "查一下")
     session = run(session, "agent-1")
@@ -113,7 +113,7 @@ describe("工具认亲", () => {
     expect(turn!.entries.map(entry => entry.id)).toEqual(["agent-1", "grep-1"])
   })
 
-  test("父亲不在这份历史里时按顶层处理 —— 凭空消失比放错地方更糟", () => {
+  test("a step whose parent is not in this history is treated as top level; vanishing is worse than misplacement", () => {
     let session = createSession("s", "/tmp")
     session = ask(session, "u1", "继续")
     session = run(session, "grep-1", launchedBy("裁掉的那个"))
@@ -122,7 +122,7 @@ describe("工具认亲", () => {
     expect(turn!.entries.map(entry => entry.id)).toEqual(["grep-1"])
   })
 
-  test("子工具跨回合也认得到父亲:后台 subagent 的结果迟到时不会另起一条", () => {
+  test("child tools find their parent across turns, so a late background subagent result does not start a new item", () => {
     let session = createSession("s", "/tmp")
     session = ask(session, "u1", "起个后台任务")
     session = run(session, "agent-1", { name: "Agent" })
@@ -135,7 +135,7 @@ describe("工具认亲", () => {
     expect(parent.kind === "tool" && parent.children.map(child => child.id)).toEqual(["late"])
   })
 
-  test("认亲不改动 session.items —— 平铺那一份还是协议原样", () => {
+  test("parentage does not change session.items; the flat list stays exactly as the protocol sent it", () => {
     let session = createSession("s", "/tmp")
     session = run(session, "agent-1")
     session = run(session, "grep-1", launchedBy("agent-1"))

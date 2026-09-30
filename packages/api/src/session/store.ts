@@ -1,7 +1,7 @@
-// 打开着的每条会话,外加终端输出要用的流式 UTF-8 解码器。
+// Every open session, plus the streaming UTF-8 decoders that terminal output needs.
 //
-// 终端块单独存(不进 `items`):它的输出是按字节流来的,一个多字节字符可能跨两个 chunk,
-// 必须由同一个 `TextDecoder` 接着解 —— 这是纯 reducer 做不到的那一点状态。
+// Terminal blocks are stored separately (not in `items`): their output arrives as a byte stream, a multi-byte character may span two chunks,
+// and the same `TextDecoder` must keep decoding it. This is the one piece of state a pure reducer cannot hold.
 import type * as acp from "@agentclientprotocol/sdk/experimental/v2"
 import { acknowledgePrompt, addPrompt, applyUpdate, type FoldPolicy, markInterrupted, type Session } from "./session"
 import { type Turn, turns } from "./turns"
@@ -14,7 +14,7 @@ export class SessionStore {
   readonly sessions = new Map<string, Session>()
   private readonly decoders = new Map<string, TextDecoder>()
 
-  /** 折叠时协议答不了的那几个判断,见 `FoldPolicy`。 */
+  /** The judgments the protocol cannot answer at fold time; see `FoldPolicy`. */
   private readonly policy: FoldPolicy
 
   constructor(policy: FoldPolicy = {}) {
@@ -73,7 +73,7 @@ export class SessionStore {
     return next
   }
 
-  /** 用户刚发出的那条消息先上屏,见 `addPrompt`。返回它的本地 id(回报到达后会换成 agent 的)。 */
+  /** Shows the message the user just sent on screen first; see `addPrompt`. Returns its local id (replaced by the agent's once its report arrives). */
   addPrompt(id: string, content: acp.ContentBlock[]): string {
     const promptId = crypto.randomUUID()
     this.sessions.set(id, addPrompt(this.get(id), content, promptId))
@@ -84,14 +84,14 @@ export class SessionStore {
     this.sessions.set(id, acknowledgePrompt(this.get(id), localId, messageId))
   }
 
-  /** 这条会话按回合分组,带上 store 自己的判据。 */
+  /** Groups this session by turn, using the store's own criteria. */
   turns(id: string): Turn[] {
     return turns(this.get(id), this.policy)
   }
 
   /**
-   * 给这条会话里悬空的「活过回合」工具收尸。只在装载一份**没有活进程**的会话、历史吃完之后调;
-   * 接管到活进程的会话不许调。返回是否动过。
+   * Reaps the dangling "outlives the turn" tools in this session. Call only after loading a session with **no live process** and consuming its history;
+   * never call it for a session attached to a live process. Returns whether anything changed.
    */
   markInterrupted(id: string): boolean {
     const session = this.get(id)

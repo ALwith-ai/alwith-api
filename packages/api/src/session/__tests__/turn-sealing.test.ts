@@ -29,7 +29,7 @@ function idle(session: ReturnType<typeof createSession>, policy?: FoldPolicy) {
   )
 }
 
-/** alwith-cli 的判据:后台标在 `_meta.alwith.runInBackground`,Monitor 只能按工具名认。 */
+/** alwith-cli's rule: background runs are marked in `_meta.alwith.runInBackground`; Monitor can only be recognised by tool name. */
 const alwith: FoldPolicy = {
   outlivesTurn: entry => {
     const meta = entry._meta?.alwith
@@ -39,8 +39,8 @@ const alwith: FoldPolicy = {
   }
 }
 
-describe("回合收口", () => {
-  test("回合结束时还停着的工具置 completed —— 协议不保证每个工具都收到终态帧", () => {
+describe("turn sealing", () => {
+  test("tools still open when the turn ends become completed; the protocol does not guarantee a final frame for every tool", () => {
     let session = createSession("s", "/tmp")
     session = startTool(session, "t1")
     expect(tool(session, "t1").status).toBe("in_progress")
@@ -49,14 +49,14 @@ describe("回合收口", () => {
     expect(tool(session, "t1").status).toBe("completed")
   })
 
-  test("已经收到终态的工具不被改写", () => {
+  test("tools that already reached a final state are not rewritten", () => {
     let session = createSession("s", "/tmp")
     session = startTool(session, "t1", { status: "failed" })
     session = idle(session)
     expect(tool(session, "t1").status).toBe("failed")
   })
 
-  test("活过回合的工具不在回合边界收口 —— 封了真结果就永远出不来", () => {
+  test("tools that outlive the turn are not sealed at the turn boundary; sealing them would hide the real result forever", () => {
     let session = createSession("s", "/tmp")
     session = startTool(session, "bg", { _meta: { alwith: { runInBackground: true } } }, alwith)
     session = startTool(session, "watch", { name: "Monitor" }, alwith)
@@ -69,7 +69,7 @@ describe("回合收口", () => {
     expect(tool(session, "plain").status).toBe("completed")
   })
 
-  test("不给判据就一视同仁:包不猜方言", () => {
+  test("without a rule all tools are treated alike; the package does not guess dialects", () => {
     let session = createSession("s", "/tmp")
     session = startTool(session, "bg", { _meta: { alwith: { runInBackground: true } } })
     session = idle(session)
@@ -77,8 +77,8 @@ describe("回合收口", () => {
   })
 })
 
-describe("装载期收尸", () => {
-  test("没有活进程时,悬空的活过回合工具置 interrupted", () => {
+describe("reaping at load", () => {
+  test("without a live process, dangling turn-outliving tools become interrupted", () => {
     let session = createSession("s", "/tmp")
     session = startTool(session, "bg", { _meta: { alwith: { runInBackground: true } } }, alwith)
     session = startTool(session, "done", { status: "completed" }, alwith)
@@ -89,21 +89,21 @@ describe("装载期收尸", () => {
     expect(tool(session, "done").status).toBe("completed")
   })
 
-  test("普通工具不归它管 —— 那些已经在回合边界收过口了", () => {
+  test("ordinary tools are not its concern; they were already sealed at the turn boundary", () => {
     let session = createSession("s", "/tmp")
     session = startTool(session, "plain", {}, alwith)
     const next = markInterrupted(session, alwith)
     expect(next).toBe(session)
   })
 
-  test("没动过就返回同一个对象,渲染层不必重画", () => {
+  test("returns the same object when nothing changed, so the renderer need not redraw", () => {
     const session = createSession("s", "/tmp")
     expect(markInterrupted(session, alwith)).toBe(session)
   })
 })
 
-describe("SessionStore 带着判据走", () => {
-  test("accept 折叠时用的是 store 的判据,markInterrupted 报有没有动过", () => {
+describe("SessionStore carries the rule", () => {
+  test("accept folds with the store's rule, and markInterrupted reports whether anything changed", () => {
     const store = new SessionStore(alwith)
     store.set(createSession("s", "/tmp"))
     store.accept("s", {
@@ -121,7 +121,7 @@ describe("SessionStore 带着判据走", () => {
   })
 })
 
-describe("工具产出是增量还是全量", () => {
+describe("tool output as delta or full", () => {
   const output = (text: string) => [{ type: "content", content: { type: "text", text } }]
   const push = (session: ReturnType<typeof createSession>, text: string, policy?: FoldPolicy) =>
     applyUpdate(
@@ -130,14 +130,14 @@ describe("工具产出是增量还是全量", () => {
       { policy }
     )
 
-  test("默认按全量:后一帧替掉前一帧,照 name 那几个字段的替换语义", () => {
+  test("full by default: a later frame replaces the earlier one, with the same replacement semantics as name and similar fields", () => {
     let session = createSession("s", "/tmp")
     session = push(session, "第一行")
     session = push(session, "第二行")
     expect(tool(session, "t1").content).toEqual(output("第二行") as never)
   })
 
-  test("声明了增量就追加 —— alwith-cli 每帧只发新出来的那一段,替换会只剩最后一行", () => {
+  test("declared deltas append; alwith-cli sends only the new part per frame, so replacing would leave only the last line", () => {
     const appending: FoldPolicy = { toolContent: "append" }
     let session = createSession("s", "/tmp")
     session = push(session, "第一行", appending)
@@ -145,7 +145,7 @@ describe("工具产出是增量还是全量", () => {
     expect(tool(session, "t1").content).toEqual([...output("第一行"), ...output("第二行")] as never)
   })
 
-  test("增量模式下空数组是没有新产出,不是清空", () => {
+  test("in delta mode an empty array means no new output, not a clear", () => {
     const appending: FoldPolicy = { toolContent: "append" }
     let session = createSession("s", "/tmp")
     session = push(session, "第一行", appending)
@@ -157,7 +157,7 @@ describe("工具产出是增量还是全量", () => {
     expect(tool(session, "t1").content).toEqual(output("第一行") as never)
   })
 
-  test("两种模式下显式 null 都是清空,字段缺省都是不动", () => {
+  test("in both modes explicit null clears and an omitted field is left alone", () => {
     for (const policy of [{}, { toolContent: "append" as const }]) {
       let session = createSession("s", "/tmp")
       session = push(session, "第一行", policy)
@@ -177,7 +177,7 @@ describe("工具产出是增量还是全量", () => {
   })
 })
 
-/** alwith-cli 的认亲判据。 */
+/** alwith-cli's parentage rule. */
 const alwithWithParents: FoldPolicy = {
   ...alwith,
   parentOf: entry => {
@@ -188,11 +188,11 @@ const alwithWithParents: FoldPolicy = {
   }
 }
 
-describe("活过回合沿父子链继承", () => {
+describe("outliving the turn is inherited along the parent chain", () => {
   const background = { _meta: { alwith: { runInBackground: true } } }
   const childOf = (parent: string) => ({ _meta: { claudeCode: { parentToolUseId: parent } } })
 
-  test("后台 subagent 派出去的步骤跟它同生共死:回合边界不封", () => {
+  test("steps launched by a background subagent live and die with it: not sealed at the turn boundary", () => {
     let session = startTool(createSession("s", "/tmp"), "agent", { name: "Agent", ...background }, alwithWithParents)
     session = startTool(session, "step", { name: "Read", ...childOf("agent") }, alwithWithParents)
     session = idle(session, alwithWithParents)
@@ -200,7 +200,7 @@ describe("活过回合沿父子链继承", () => {
     expect(tool(session, "step").status).toBe("in_progress")
   })
 
-  test("收尸时一并收,连孙辈也收", () => {
+  test("reaped together with it, grandchildren included", () => {
     let session = startTool(createSession("s", "/tmp"), "agent", { name: "Agent", ...background }, alwithWithParents)
     session = startTool(session, "step", { name: "Agent", ...childOf("agent") }, alwithWithParents)
     session = startTool(session, "leaf", { name: "Read", ...childOf("step") }, alwithWithParents)
@@ -210,24 +210,24 @@ describe("活过回合沿父子链继承", () => {
     expect(tool(session, "leaf").status).toBe(INTERRUPTED)
   })
 
-  test("前台 subagent 的步骤照常在回合边界收口", () => {
+  test("steps of a foreground subagent are sealed at the turn boundary as usual", () => {
     let session = startTool(createSession("s", "/tmp"), "agent", { name: "Agent" }, alwithWithParents)
     session = startTool(session, "step", { name: "Read", ...childOf("agent") }, alwithWithParents)
     session = idle(session, alwithWithParents)
     expect(tool(session, "step").status).toBe("completed")
   })
 
-  test("认亲成环不死循环", () => {
+  test("a parentage cycle does not loop forever", () => {
     let session = startTool(createSession("s", "/tmp"), "a", { name: "X", ...childOf("b") }, alwithWithParents)
     session = startTool(session, "b", { name: "Y", ...childOf("a") }, alwithWithParents)
     expect(() => idle(session, alwithWithParents)).not.toThrow()
   })
 })
 
-describe("活过回合的工具,状态只认同样声明了活过回合的那一帧", () => {
+describe("a turn-outliving tool takes its status only from frames that also declare outliving the turn", () => {
   const flagged = { _meta: { alwith: { runInBackground: true } } }
 
-  test("轮内那条不带标的 completed 只是「已经扔到后台了」,不算终态", () => {
+  test("the unmarked completed within the turn only means \"sent to the background\" and is not final", () => {
     let session = startTool(createSession("s", "/tmp"), "bg", { name: "Bash", ...flagged }, alwith)
     session = applyUpdate(
       session,
@@ -238,7 +238,7 @@ describe("活过回合的工具,状态只认同样声明了活过回合的那一
     expect(tool(session, "bg").endedAt).toBeNull()
   })
 
-  test("轮后带标的那条才是真终态,failed 也一样", () => {
+  test("the marked frame after the turn is the real final state, failed included", () => {
     let session = startTool(createSession("s", "/tmp"), "bg", { name: "Bash", ...flagged }, alwith)
     session = idle(session, alwith)
     session = applyUpdate(
@@ -250,7 +250,7 @@ describe("活过回合的工具,状态只认同样声明了活过回合的那一
     expect(tool(session, "bg").endedAt).not.toBeNull()
   })
 
-  test("Monitor 按名字认,它的每一帧都算声明过,状态照常更新", () => {
+  test("Monitor is recognised by name; every frame of it counts as declared, so its status updates as usual", () => {
     let session = startTool(createSession("s", "/tmp"), "m", { name: "Monitor" }, alwith)
     session = applyUpdate(
       session,
@@ -260,7 +260,7 @@ describe("活过回合的工具,状态只认同样声明了活过回合的那一
     expect(tool(session, "m").status).toBe("failed")
   })
 
-  test("其它字段(产出、标题)不受这条规矩影响,照常收", () => {
+  test("other fields (output, title) are unaffected by this rule and are taken as usual", () => {
     let session = startTool(createSession("s", "/tmp"), "bg", { name: "Bash", ...flagged }, alwith)
     session = applyUpdate(
       session,
@@ -279,8 +279,8 @@ describe("活过回合的工具,状态只认同样声明了活过回合的那一
   })
 })
 
-describe("结束时刻", () => {
-  test("工具进入终态时盖 endedAt,回合边界封掉的也盖", () => {
+describe("end time", () => {
+  test("endedAt is stamped when a tool reaches a final state, including tools sealed at the turn boundary", () => {
     let session = startTool(createSession("s", "/tmp"), "a")
     session = startTool(session, "b")
     expect(tool(session, "a").endedAt).toBeNull()
@@ -290,7 +290,7 @@ describe("结束时刻", () => {
     expect(tool(session, "b").endedAt).not.toBeNull()
   })
 
-  test("已经有 endedAt 的工具再收到终态帧不改时刻", () => {
+  test("a tool that already has endedAt keeps it when another final frame arrives", () => {
     let session = startTool(createSession("s", "/tmp"), "a")
     session = applyUpdate(session, { sessionUpdate: "tool_call_update", toolCallId: "a", status: "completed" } as never)
     const first = tool(session, "a").endedAt
@@ -298,7 +298,7 @@ describe("结束时刻", () => {
     expect(tool(session, "a").endedAt).toBe(first)
   })
 
-  test("回合收尾时按起这一轮的用户消息记下时刻,turns() 里能读到", async () => {
+  test("at turn end the time is recorded against the user message that started the turn and is readable in turns()", async () => {
     const store = new SessionStore()
     store.set(createSession("s", "/tmp"))
     const localId = store.addPrompt("s", [{ type: "text", text: "go" }])
@@ -313,7 +313,7 @@ describe("结束时刻", () => {
     expect(turn!.endedAt!).toBeGreaterThanOrEqual(turn!.startedAt!)
   })
 
-  test("重放从头开始时上一世的回合时刻与用量一起清掉", () => {
+  test("a replay from the start clears the previous run's turn times together with usage", () => {
     const store = new SessionStore()
     store.set(createSession("s", "/tmp"))
     const localId = store.addPrompt("s", [{ type: "text", text: "go" }])
@@ -326,8 +326,8 @@ describe("结束时刻", () => {
   })
 })
 
-describe("时刻严格递增", () => {
-  test("同一毫秒里来的几件事也分得清先后:收尾前的条目 < 收尾时刻 < 收尾后的条目", () => {
+describe("times strictly increase", () => {
+  test("events in the same millisecond are still ordered: items before the end < end time < items after", () => {
     const store = new SessionStore()
     store.set(createSession("s", "/tmp"))
     const localId = store.addPrompt("s", [{ type: "text", text: "go" }])
@@ -342,7 +342,7 @@ describe("时刻严格递增", () => {
     expect(after!.at).toBeGreaterThan(turn!.endedAt!)
   })
 
-  test("工具终态时刻不早于它的到达时刻,后面的条目也不早于它", () => {
+  test("a tool's final time is not earlier than its arrival, and later items are not earlier than it", () => {
     let session = startTool(createSession("s", "/tmp"), "a")
     session = applyUpdate(session, { sessionUpdate: "tool_call_update", toolCallId: "a", status: "completed" } as never)
     session = startTool(session, "b")
@@ -351,8 +351,8 @@ describe("时刻严格递增", () => {
   })
 })
 
-describe("收尾时刻只记第一次", () => {
-  test("用户 Stop 之后 agent 自己的 idle 再来,这一轮仍结束于用户停下的那一刻", () => {
+describe("the end time is recorded only once", () => {
+  test("when the agent's own idle follows a user Stop, the turn still ends at the moment the user stopped", () => {
     const store = new SessionStore()
     store.set(createSession("s", "/tmp"))
     const localId = store.addPrompt("s", [{ type: "text", text: "go" }])

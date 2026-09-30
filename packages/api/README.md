@@ -1,16 +1,16 @@
 # @alwith/api
 
-ALwith 的应用侧 TypeScript。一个包,三样东西,按名词分入口;整包 import 也行。
+The application-side TypeScript of ALwith. One package, three things, with entry points split by noun; importing the whole package also works.
 
-| 入口 | 内容 |
+| Entry | Contents |
 | --- | --- |
-| `@alwith/api/runtime` | `RuntimeClient` 接口与帧协议类型,`WebSocketRuntimeClient`(`alwith-runtime --listen ws://`),错误 |
-| `@alwith/api/agent` | `Agents` / `Agent`(起、接管、换芯、退出)与 `AgentRequests`(权限与问卷的待办簿) |
-| `@alwith/api/session` | `session/update` 帧折成一条可渲染的会话:`applyUpdate`、`SessionStore`、`turns`。判据见 [SESSION.md](SESSION.md) |
-| `@alwith/api/tauri` | `TauriRuntimeClient`:宿主的 Rust 把 stdio 子进程经 Tauri 事件中转 |
-| `@alwith/api/node` | `ProcessRuntimeClient`:自己 spawn `alwith-runtime --listen stdio://` |
+| `@alwith/api/runtime` | The `RuntimeClient` interface and frame protocol types, `WebSocketRuntimeClient` (`alwith-runtime --listen ws://`), and errors |
+| `@alwith/api/agent` | `Agents` / `Agent` (start, attach, swap engine, exit) and `AgentRequests` (the to-do ledger for permissions and questionnaires) |
+| `@alwith/api/session` | Folds `session/update` frames into one renderable session: `applyUpdate`, `SessionStore`, `turns`. See [SESSION.md](SESSION.md) for the criteria |
+| `@alwith/api/tauri` | `TauriRuntimeClient`: the host's Rust relays the stdio child process through Tauri events |
+| `@alwith/api/node` | `ProcessRuntimeClient`: spawns `alwith-runtime --listen stdio://` itself |
 
-三种传输都继承 `FrameRuntimeClient`;要自己的传输就继承它。
+All three transports extend `FrameRuntimeClient`; extend it to build your own transport.
 
 ```ts
 import { WebSocketRuntimeClient } from "@alwith/api/runtime"
@@ -18,45 +18,45 @@ import { WebSocketRuntimeClient } from "@alwith/api/runtime"
 const port = new WebSocketRuntimeClient(url, token)
 await port.start("codex", { engine: "codex", cwd })
 const { sessionId } = await port.sessionNew("codex", cwd)
-const { stopReason } = await port.prompt("codex", sessionId, [{ type: "text", text: "你好" }])
+const { stopReason } = await port.prompt("codex", sessionId, [{ type: "text", text: "Hello" }])
 ```
 
-## 你手里的 agent:`Agents`
+## The agents you hold: `Agents`
 
-起进程、接管、换芯、退出,每个 WorkBuddy 都要处理,而且做错就是事故:起了同名的第二个进程、
-换芯时接回了正在退出的旧进程、进程崩了 prompt 的 `await` 永挂。这些收在 `Agents` 里,你拿到的是一个 `Agent`:
+Starting processes, attaching, swapping engines and exiting are something every WorkBuddy must handle, and getting them wrong causes incidents: starting a second process with the same name,
+re-attaching to an old process that is still exiting during an engine swap, or a prompt's `await` hanging forever after the process crashes. `Agents` encapsulates all of this, and what you get is an `Agent`:
 
 ```ts
 import { Agents } from "@alwith/api/agent"
 
 const agents = new Agents(port, { info: { name: "my-workbuddy", version: "1.0" } })
-// 有活的就接管(进程、上下文、没答的请求都还在),没有就起一个
+// Attach if one is alive (process, context and unanswered requests are all still there), otherwise start one
 const attached = await agents.attach(sessionId)
 const agent = attached?.agent ?? (await agents.start("chat-1", launch))
-attached?.info.pendingAgentRequests   // 接管时 agent 还在等答的请求,交给 AgentRequests 待办簿
+attached?.info.pendingAgentRequests   // Requests the agent was still waiting on at attach time; hand them to the AgentRequests ledger
 agent.onNotification((method, params) => …)
-await agent.request("session/prompt", { sessionId, prompt })   // 进程退出时立刻失败,不永挂
-await agents.replace("chat-1", otherLaunch)                     // 换芯 = 停 → 等 exit → 起
-agents.onExit(agent => …)                                       // 进程没了,与 Runtime 的 exit 事件同步
+await agent.request("session/prompt", { sessionId, prompt })   // Fails immediately when the process exits, never hangs
+await agents.replace("chat-1", otherLaunch)                     // Swap engine = stop → wait for exit → start
+agents.onExit(agent => …)                                       // The process is gone, in sync with the Runtime's exit event
 ```
 
-只观察不认领的面板别 attach:`attach` 就是认领,认领了那条会话的权限就该你答。用只读的
-`agentForSession(sessionId)` 拿到 agentId,再按它过滤广播的 `onAcpNotification` / `onAcpAgentRequest`。
+A panel that only observes and does not claim should not attach: `attach` means claiming, and once you claim a session you are the one who should answer its permissions. Use the read-only
+`agentForSession(sessionId)` to get the agentId, then filter the broadcast `onAcpNotification` / `onAcpAgentRequest` by it.
 
-`Agents` 只要求端口有 `AgentPort` 那几条(`RuntimeClient` 的子集),应用自己的宿主端口(比如 Tauri 中转)也能用。
+`Agents` only requires the port to have the `AgentPort` methods (a subset of `RuntimeClient`), so an application's own host port (such as a Tauri relay) works too.
 
-协议参考是仓库根的 [PROTOCOL.md](../../PROTOCOL.md);这个包是它的应用侧。
+The protocol reference is [PROTOCOL.md](../../PROTOCOL.md) at the repo root; this package is its application side.
 
 ## Rust SDK
 
-从 0.1.4 起，包内 `rust/` 是可嵌入消费端 workspace 的 Cargo crate，包含协议类型、Runtime 客户端及进程辅助。先用 Bun 安装此包，再配置相对于 Cargo.toml 的 `path`：
+Since 0.1.4, `rust/` inside the package is a Cargo crate that can be embedded in a consumer's workspace, containing the protocol types, the Runtime client and process helpers. Install this package with Bun first, then configure a `path` relative to Cargo.toml:
 
 ```toml
 [dependencies]
 alwith-api = { path = "../node_modules/@alwith/api/rust", features = ["client"] }
 ```
 
-上例适用于 `src-tauri/Cargo.toml`。根目录 Cargo.toml 使用 `node_modules/@alwith/api/rust`。仅需类型时使用 `default-features = false`。此 crate 在消费端编译，不依赖上游 Git checkout。
+The example above applies to `src-tauri/Cargo.toml`. A root-level Cargo.toml uses `node_modules/@alwith/api/rust`. Use `default-features = false` if you only need the types. This crate is compiled on the consumer side and does not depend on an upstream Git checkout.
 
 ## License and redistribution
 

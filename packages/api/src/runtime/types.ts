@@ -17,7 +17,7 @@ export interface SessionRunState {
   sessionId: string
   state: RunState
   reusableDraft: boolean
-  /** 属主 id:连接(或它的子属主 `<连接>:<label>`)。 */
+  /** Owner id: the connection (or one of its sub-owners, `<connection>:<label>`). */
   owner: string
   cwd: string
   title: string

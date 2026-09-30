@@ -1,9 +1,13 @@
-# 发 @alwith/api 到 npm:推一个 v<版本> 的 tag 就发。
+# Publish @alwith/api to npm: pushing a v<version> tag publishes it.
 #
-# 用 npm 的 trusted publishing(OIDC):CI 拿 GitHub 签发的身份直接发,仓库里、npmjs 上都不存 token,
-# 也就没有 token 过期、绕过 2FA 被 npm 收紧这些事。npmjs.com 上要配一次(见 README「发布」),
-# 之后本地永远不用 npm login。不带 --provenance:provenance 只支持公开源码仓,这个仓是私有的
-# (2026-09-17 实测 E422);仓库公开那天加回去,包页上就能看到它出自哪个 commit。
+# Uses npm trusted publishing (OIDC): CI publishes with the identity GitHub issues, so no token is
+# stored in the repo or on npmjs,
+# and there is no token expiry or npm tightening of 2FA bypass to worry about. Configure it once on
+# npmjs.com (see README "Publishing"),
+# after which npm login is never needed locally. No --provenance: provenance only supports public
+# source repos and this repo is private
+# (verified 2026-09-17: E422); add it back the day the repo goes public, so the package page shows
+# which commit it came from.
 name: publish
 
 on:
@@ -12,7 +16,7 @@ on:
 
 permissions:
   contents: read
-  # OIDC:向 npm 证明「我是 ALwith-ai/alwith-api 的 publish.yml」
+  # OIDC: prove to npm "I am publish.yml of ALwith-ai/alwith-api"
   id-token: write
 
 jobs:
@@ -21,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
-      # npm ≥ 11.5.1 才会走 OIDC;Node 24 自带的 npm 满足
+      # npm >= 11.5.1 is required for OIDC; the npm bundled with Node 24 satisfies it
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -37,12 +41,13 @@ jobs:
           mkdir -p "$RUNNER_TEMP/alwith-api-unpacked"
           tar -xzf "$RUNNER_TEMP/alwith-api.tgz" -C "$RUNNER_TEMP/alwith-api-unpacked"
           cargo test --manifest-path "$RUNNER_TEMP/alwith-api-unpacked/package/rust/Cargo.toml" --lib
-      - name: tag 必须就是 package.json 里的版本
+      - name: The tag must equal the version in package.json
         run: |
           version=$(node -p "require('./packages/api/package.json').version")
           if [ "$GITHUB_REF_NAME" != "v$version" ]; then
             echo "tag $GITHUB_REF_NAME != v$version(packages/api/package.json)"; exit 1
           fi
-      # prepack 生成 JS dist 与独立 Rust crate；压缩包内容由 scripts/__tests__ 验证。
+      # prepack builds the JS dist and the standalone Rust crate; tarball contents are verified by
+      # scripts/__tests__.
       - run: npm publish --access public
         working-directory: packages/api

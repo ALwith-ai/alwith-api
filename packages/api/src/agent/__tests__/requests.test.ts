@@ -32,8 +32,8 @@ const form = (id: unknown, sessionId: string | null, elicitationId?: string) => 
   }
 })
 
-describe("收请求", () => {
-  test("权限与问卷记进簿子,按会话能查,按工具调用能查", () => {
+describe("receiving requests", () => {
+  test("permissions and elicitations go into the book, queryable by session and by tool call", () => {
     const { requests } = ledger()
     requests.receive(permission(1, "s1", "t1"))
     requests.receive(form(2, "s1", "e1"))
@@ -44,26 +44,26 @@ describe("收请求", () => {
     expect(requests.elicitation("e1")?.key).toBe("2")
   })
 
-  test("不认识的请求回 -32601,不让 agent 干等", () => {
+  test("an unknown request gets -32601 instead of leaving the agent waiting", () => {
     const { requests, sent } = ledger()
     requests.receive({ id: 7, method: "fs/read_text_file", params: {} })
     expect(sent).toEqual([{ id: 7, result: undefined, error: { code: METHOD_NOT_FOUND, message: "method not found: fs/read_text_file" } }])
     expect(requests.list()).toEqual([])
   })
 
-  test("9 与 \"9\" 是两个 id", () => {
+  test("9 and \"9\" are two different ids", () => {
     const { requests } = ledger()
     requests.receive(permission(9, "s", "a"))
     requests.receive(permission("9", "s", "b"))
     expect(requests.list()).toHaveLength(2)
   })
 
-  test("权限缺 sessionId 直接炸,不记一条无主的", () => {
+  test("a permission without sessionId throws instead of recording an ownerless entry", () => {
     const { requests } = ledger()
-    expect(() => requests.receive({ id: 1, method: "session/request_permission", params: { subject: {} } })).toThrow("缺 sessionId")
+    expect(() => requests.receive({ id: 1, method: "session/request_permission", params: { subject: {} } })).toThrow("missing sessionId")
   })
 
-  test("接管时 Runtime 交来的那批当作刚收到", () => {
+  test("the batch the Runtime hands over on attach counts as just received", () => {
     const { requests } = ledger()
     requests.receiveAll([permission(1, "s", "a"), form(2, null)])
     expect(requests.list()).toHaveLength(2)
@@ -71,8 +71,8 @@ describe("收请求", () => {
   })
 })
 
-describe("回答", () => {
-  test("带原来的 id 回,出簿,再答一次什么都不发", () => {
+describe("answering", () => {
+  test("answers with the original id and leaves the book; a second answer sends nothing", () => {
     const { requests, sent } = ledger()
     requests.receive(permission("p-1", "s", "t"))
     expect(requests.answerPermission("t", { outcome: "selected", optionId: "yes" })).toBe(true)
@@ -81,21 +81,21 @@ describe("回答", () => {
     expect(sent).toHaveLength(1)
   })
 
-  test("_meta 跟着答复走", () => {
+  test("_meta travels with the reply", () => {
     const { requests, sent } = ledger()
     requests.receive(permission(1, "s", "t"))
     requests.answerPermission("t", { outcome: "cancelled" }, { alwith: { reason: "x" } })
     expect(sent[0]?.result).toEqual({ outcome: { outcome: "cancelled" }, _meta: { alwith: { reason: "x" } } })
   })
 
-  test("问卷按键回答", () => {
+  test("elicitations are answered by key", () => {
     const { requests, sent } = ledger()
     requests.receive(form(5, "s", "e"))
     expect(requests.answer("5", { action: "accept", content: { a: 1 } })).toBe(true)
     expect(sent[0]).toEqual({ id: 5, result: { action: "accept", content: { a: 1 } }, error: undefined })
   })
 
-  test("新进簿的一条单独通知,答了不通知", () => {
+  test("a newly booked entry is notified on its own; answering is not notified", () => {
     const { requests } = ledger()
     const received: string[] = []
     requests.onReceived(request => received.push(`${request.kind}:${request.key}`))
@@ -105,7 +105,7 @@ describe("回答", () => {
     expect(received).toEqual(["permission:1", "elicitation:2"])
   })
 
-  test("簿子每变一次通知一次", () => {
+  test("every change to the book notifies once", () => {
     const { requests } = ledger()
     const seen: number[] = []
     requests.onChange(pending => seen.push(pending.length))
@@ -115,8 +115,8 @@ describe("回答", () => {
   })
 })
 
-describe("agent 撤回与完成", () => {
-  test("$/cancel_request:回 -32800、出簿、通知应用撤弹窗;认不出的 id 是空操作", () => {
+describe("agent withdrawal and completion", () => {
+  test("$/cancel_request: replies -32800, leaves the book and tells the app to close the dialog; an unknown id is a no-op", () => {
     const { requests, sent } = ledger()
     const withdrawn: string[] = []
     requests.onWithdrawn(request => withdrawn.push(request.key))
@@ -129,12 +129,12 @@ describe("agent 撤回与完成", () => {
     expect(sent).toHaveLength(1)
   })
 
-  test("$/cancel_request 缺 requestId 直接炸 —— 协议字段名是 requestId,不是 id", () => {
+  test("$/cancel_request without requestId throws; the protocol field is requestId, not id", () => {
     const { requests } = ledger()
-    expect(() => requests.onNotification("$/cancel_request", { id: 1 })).toThrow("缺 requestId")
+    expect(() => requests.onNotification("$/cancel_request", { id: 1 })).toThrow("missing requestId")
   })
 
-  test("elicitation/complete:还挂着的问卷替它收掉(cancel),答过的不管", () => {
+  test("elicitation/complete: closes a still pending elicitation (cancel) and ignores answered ones", () => {
     const { requests, sent } = ledger()
     requests.receive(form(1, "s", "e-1"))
     requests.onNotification("elicitation/complete", { elicitationId: "e-1" })
@@ -144,8 +144,8 @@ describe("agent 撤回与完成", () => {
   })
 })
 
-describe("Stop 与放手", () => {
-  test("cancelSession:该会话的权限回 cancelled、问卷回 cancel,别的会话不动", () => {
+describe("Stop and release", () => {
+  test("cancelSession: that session's permissions get cancelled and elicitations get cancel; other sessions are untouched", () => {
     const { requests, sent } = ledger()
     requests.receive(permission(1, "s1", "a"))
     requests.receive(form(2, "s1", "e"))
@@ -158,7 +158,7 @@ describe("Stop 与放手", () => {
     expect(requests.list().map(r => r.key)).toEqual(["3"])
   })
 
-  test("release:一条都不回答,返回放掉的那些", () => {
+  test("release: answers nothing and returns the released entries", () => {
     const { requests, sent } = ledger()
     requests.receive(permission(1, "s", "a"))
     requests.receive(form(2, null))

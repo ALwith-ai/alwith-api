@@ -77,7 +77,7 @@ afterEach(() => {
 })
 
 describe("WebSocketRuntimeClient", () => {
-  test("会话标题交给 Runtime 同步，拒绝时保留错误", async () => {
+  test("session titles are synced through the Runtime, and a refusal keeps the error", async () => {
     stubWebSocket()
     const port = new WebSocketRuntimeClient("ws://127.0.0.1", "secret")
     const request = port.setSessionTitle("session-1", "券核销")
@@ -98,7 +98,7 @@ describe("WebSocketRuntimeClient", () => {
     await expect(rejected).rejects.toThrow("title rejected")
   })
 
-  test("使用鉴权子协议发送请求并按 id 配对响应", async () => {
+  test("sends requests over the auth subprotocol and pairs responses by id", async () => {
     stubWebSocket()
     const port = new WebSocketRuntimeClient("ws://127.0.0.1", "secret")
     const request = port.runStates()
@@ -111,7 +111,7 @@ describe("WebSocketRuntimeClient", () => {
     await expect(request).resolves.toEqual([])
   })
 
-  test("sessionEvents 带分页参数发送", async () => {
+  test("sessionEvents sends its paging parameters", async () => {
     stubWebSocket()
     const port = new WebSocketRuntimeClient("ws://127.0.0.1", "secret")
     const request = port.sessionEvents("session-1", 7, 50)
@@ -127,7 +127,7 @@ describe("WebSocketRuntimeClient", () => {
     await expect(request).resolves.toEqual([])
   })
 
-  test("批量分发 lines、exit、stderr 与 runStates 事件", async () => {
+  test("dispatches batched lines, exit, stderr and runStates events", async () => {
     stubWebSocket()
     const port = new WebSocketRuntimeClient("ws://127.0.0.1", "secret")
     const lines = mock()
@@ -152,7 +152,7 @@ describe("WebSocketRuntimeClient", () => {
     expect(runStates).toHaveBeenCalledWith([])
   })
 
-  test("宿主扩展事件按 type 分发给 onEvent", async () => {
+  test("host extension events dispatch to onEvent by type", async () => {
     stubWebSocket()
     const port = new WebSocketRuntimeClient("ws://127.0.0.1", "secret")
     const custom = mock()
@@ -167,7 +167,7 @@ describe("WebSocketRuntimeClient", () => {
     expect(custom).toHaveBeenCalledTimes(1)
   })
 
-  test("连接断开会拒绝全部在飞请求", async () => {
+  test("a dropped connection rejects every in-flight request", async () => {
     stubWebSocket()
     const port = new WebSocketRuntimeClient("ws://127.0.0.1", "secret")
     const request = port.runStates()
@@ -178,7 +178,7 @@ describe("WebSocketRuntimeClient", () => {
     await expect(request).rejects.toThrow("Runtime WebSocket disconnected")
   })
 
-  test("Runtime 重启后自动重连并恢复 runStates 订阅", async () => {
+  test("after a Runtime restart it reconnects and restores the runStates subscription", async () => {
     stubWebSocket()
     const port = new WebSocketRuntimeClient("ws://127.0.0.1", "secret")
     const runStates = mock()
@@ -200,7 +200,7 @@ describe("WebSocketRuntimeClient", () => {
     port.close()
   })
 
-  test("没有订阅时断开不重连", async () => {
+  test("without subscriptions a disconnect does not reconnect", async () => {
     stubWebSocket()
     const port = new WebSocketRuntimeClient("ws://127.0.0.1", "secret")
     const request = port.runStates()
@@ -213,7 +213,7 @@ describe("WebSocketRuntimeClient", () => {
     expect(MemoryWebSocket.instances).toHaveLength(1)
   })
 
-  test("close 之后拒绝新请求", async () => {
+  test("new requests are refused after close", async () => {
     stubWebSocket()
     const port = new WebSocketRuntimeClient("ws://127.0.0.1", "secret")
     port.close()

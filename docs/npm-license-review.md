@@ -1,15 +1,15 @@
-# npm 0.1.0 许可复核
+# npm 0.1.0 license review
 
-已写入四个 npm 包的专有开发与再分发许可（v1.0），主体依据现有 U LICENSE 的 ALWITHAI PTE. LTD.；仅覆盖自有代码。允许商用、应用内分发、修改供应的 JS，与 MPL 应用组合；不强制注册应用、不承诺绝对免责、不约定未确认的法院或赔偿金额。
+The proprietary development and redistribution license (v1.0) has been written into the four npm packages. The licensor entity follows the existing U LICENSE, ALWITHAI PTE. LTD., and only ALwith-owned code is covered. It allows commercial use, in-app distribution, modifying the supplied JS, and combining with MPL applications; it does not require registering applications, promise absolute disclaimers, or fix any unconfirmed court or compensation amount.
 
-## 发布前仍须完成
+## Still to be completed before release
 
-- 负责人确认公司主体及员工、外包、复制代码的许可权属；律师审核专有条款及账号服务条款。本文件和自动生成的声明不是法律审核证明。
-- Chat 的 shadcn UI 来源已有结构与 Desktop 迁入记录；PromptInput 被标为 vendor，但缺少精确上游版本。已保守保留 Vercel AI Elements 的 Apache 声明，须核对原始引入版本、完整 NOTICE 及逐文件范围，不能声称已完成全量来源审计。
-- smplr 的 npm 包与官方仓均未找到许可证全文；元数据标注 MIT。须向上游核实 1.0.0 的完整许可与版权声明，不能自行编造。音色媒体许可独立，不随库的 MIT 自动获得。
-- 外部依赖未打入本包；应用打包时对实际依赖版本及传递依赖另行汇总声明。
-- 2026-09-16：用户知悉上述复核项后明确要求先发布。四包已解除 private 发布锁并发布 npm 0.1.0；仓库仍私有。上述来源与法律复核仍未完成，发布成功不等于法律审核通过。
+- The owner confirms the company entity and the licensing rights over code from employees, contractors and copied code; a lawyer reviews the proprietary terms and the account service terms. This file and the auto-generated notices are not proof of legal review.
+- The provenance of Chat's shadcn UI has a structure and a Desktop migration record; PromptInput is marked as vendor but lacks an exact upstream version. The Vercel AI Elements Apache notice is conservatively retained; the original imported version, the full NOTICE and the per-file scope must be verified, and it cannot be claimed that a full provenance audit is complete.
+- No full license text was found in either the smplr npm package or its official repo; the metadata says MIT. The complete license and copyright notice for 1.0.0 must be confirmed with upstream and must not be invented. Licenses for the instrument sample media are separate and are not automatically obtained through the library's MIT.
+- External dependencies are not bundled into this package; when an app is packaged, notices for the actual dependency versions and transitive dependencies are compiled separately.
+- 2026-09-16: after being made aware of the review items above, the user explicitly asked to publish first. The four packages had the private publish lock removed and npm 0.1.0 was published; the repo remains private. The provenance and legal reviews above are still incomplete, and a successful publish does not mean legal review has passed.
 
-## 逐步开源
+## Gradual open-sourcing
 
-现在只计划 U 开源，本次不修改 U 的现有许可证、不开放任何仓库。npm 包未来按版本选择开源，必须有相应权利；不能覆盖 npm 旧版本或收回旧版合规授权。Runtime 和混合仓库中的 Rust、QA、alwith.dev 等不受这四份 npm 许可自动覆盖。
+For now only U is planned to be open-sourced; this change does not modify U's existing license or open any repository. npm packages may later be open-sourced per version, which requires the corresponding rights; this cannot overwrite older npm versions or revoke compliance grants for them. The Runtime, and the Rust, QA, alwith.dev and similar parts in mixed repos, are not automatically covered by these four npm licenses.

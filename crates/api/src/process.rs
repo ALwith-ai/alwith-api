@@ -1,5 +1,7 @@
-//! 起子进程时的平台细节:Windows 下 spawn 不弹控制台。客户端 spawn Runtime、模块 spawn 自己的
-//! 子进程都用它;非 Windows 是 no-op,调用点不用写 `#[cfg(windows)]`。
+//! Platform details for spawning child processes: no console window pops up on Windows spawn. The
+//! client spawning Runtime and modules spawning their own
+//! child processes both use it; it is a no-op on non-Windows, so call sites need no
+//! `#[cfg(windows)]`.
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;

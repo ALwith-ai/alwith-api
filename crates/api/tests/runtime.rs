@@ -71,7 +71,8 @@ mod tests {
         client.stop("cat", None).await.unwrap();
     }
 
-    /// 模块子进程的形态:对方(Runtime)发请求进来,handler 答;自己也能发事件出去。
+    /// Shape of a module subprocess: the peer (Runtime) sends requests in, the handler answers; it
+    /// can also send events out.
     #[tokio::test]
     async fn handles_incoming_requests_and_emits_events() {
         use tokio::io::AsyncBufReadExt as _;
@@ -114,8 +115,9 @@ mod tests {
         assert!(client.closed().is_some());
     }
 
-    /// 一个用 python 写的假 ACP agent:握手、建会话、prompt 时先推一条 session/update、再问一次权限,
-    /// 拿到答复后回合结束。
+    /// A fake ACP agent written in python: handshake, create session, on prompt first push a
+    /// session/update, then ask for permission once,
+    /// and end the turn after getting the answer.
     const FAKE_AGENT: &str = r#"#!/usr/bin/env python3
 import json, sys
 def emit(o):
@@ -167,11 +169,12 @@ for line in sys.stdin:
         let mut events = client.events();
         client.start("a", serde_json::json!({"engine":"fake"}), None).await.unwrap();
 
-        // 建会话:Runtime 自己握手,应用只看到 sessionId。
+        // Create a session: Runtime handshakes itself, the app only sees the sessionId.
         let session = client.session_new("a", "/tmp", vec![], None, None).await.unwrap();
         assert_eq!(session["sessionId"], "s-1");
 
-        // 一轮对话:内容经 acpNotification,权限请求经 acpAgentRequest,应用答完回合才结束。
+        // One turn: content arrives via acpNotification, the permission request via
+        // acpAgentRequest; the turn ends once the app answers.
         let prompter = Arc::clone(&client);
         let turn = tokio::spawn(async move {
             prompter.prompt("a", "s-1", serde_json::json!([{ "type": "text", "text": "hello" }]), None, None).await
@@ -204,7 +207,8 @@ for line in sys.stdin:
                         .unwrap();
                     answered = true;
                 }
-                // Runtime 自己发的请求的响应不进 inbound(应用没发过它们)。
+                // Responses to requests Runtime sent itself do not enter inbound (the app never
+                // sent them).
                 ClientEvent::Runtime(RuntimeEvent::Inbound { lines, .. })
                     if lines.iter().any(|line| line.contains("\"id\":\"rt-")) =>
                 {
@@ -218,14 +222,16 @@ for line in sys.stdin:
         assert_eq!(result["_meta"]["answered"], "ok");
         assert_eq!(chunks, vec!["hi".to_string(), " there".to_string()]);
         assert!(!inbound_saw_runtime_response);
-        // 第二次建会话不再握手:initialize 走缓存(假 agent 收到第二个 initialize 也会答,但 Runtime 不该发)。
+        // A second session creation does not handshake again: initialize is served from cache (the
+        // fake agent would answer a second initialize, but Runtime must not send it).
         let again = client.session_new("a", "/tmp", vec![], None, None).await.unwrap();
         assert_eq!(again["sessionId"], "s-1");
-        // 运行态照常:Runtime 代发的 prompt 也被记账。
+        // Run state as usual: the prompt Runtime sent on the app's behalf is also accounted for.
         let states = client.run_states().await.unwrap();
         assert_eq!(states.len(), 1);
 
-        // 应用自选 id:撤回(`$/cancel_request`)要靠它;还没答完的 id 不能再用;agent 回的 -32800 原样到应用。
+        // App-chosen id: retracting (`$/cancel_request`) depends on it; an id that is still
+        // unanswered cannot be reused; the agent's -32800 reaches the app unchanged.
         let waiter = Arc::clone(&client);
         let slow = tokio::spawn(async move {
             waiter.acp_request("a", "slow", serde_json::json!({}), Some(serde_json::json!("app-1")), None).await

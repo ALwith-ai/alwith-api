@@ -1,30 +1,30 @@
-// 把一条会话按回合分组:一轮 = 一条用户消息,加上 agent 为它产出的所有东西。
+// Groups a session into turns: one turn = one user message plus everything the agent produced for it.
 //
-// `session.items` 是按到达顺序的平铺清单,协议就长这样,想一条条读它的应用直接用。
-// 但界面基本都按「一问一答」排版:用户气泡,底下跟着这一轮的回答、思考、工具。
-// 这个分组每个 WorkBuddy 都要做,做法也只有一种,所以放在包里而不是各写一遍。
+// `session.items` is a flat list in arrival order, which is what the protocol looks like; apps that want to read it item by item can use it directly.
+// But UIs are almost always laid out as question-and-answer: a user bubble, followed by that turn's reply, thinking, and tools.
+// Every WorkBuddy needs this grouping and there is really only one way to do it, so it lives in the package instead of being rewritten each time.
 import type * as acp from "@agentclientprotocol/sdk/experimental/v2"
 import type { CompactionItem, FoldPolicy, Item, MessageItem, PlanItem, Session, ToolItem } from "./session"
 
-/** 一个工具,以及它派出去的子工具。 */
+/** A tool, plus the sub-tools it dispatched. */
 export type ToolNode = ToolItem & { children: ToolNode[] }
 
-/** 一轮里 agent 产出的一条东西。工具已经认过亲,子工具在父工具的 `children` 里。 */
+/** One thing the agent produced within a turn. Tools have already found their parents; sub-tools sit in the parent tool's `children`. */
 export type TurnEntry = MessageItem | ToolNode | PlanItem | CompactionItem
 
 export type Turn = {
   /**
-   * 起这一轮的用户消息。为 null 的情况有两种:历史从 agent 的话开头,
-   * 或者这一轮是 agent 自己发起的。
+   * The user message that started this turn. Null in two cases: the history begins with the agent speaking,
+   * or the turn was initiated by the agent itself.
    */
   prompt: MessageItem | null
-  /** 这一轮 agent 产出的东西,按到达顺序。 */
+  /** What the agent produced this turn, in arrival order. */
   entries: TurnEntry[]
-  /** 这一轮的用量,由收尾的 idle 帧带来。 */
+  /** This turn's usage, delivered by the closing idle frame. */
   usage: acp.Usage | null
-  /** 这一轮开始的时刻:用户消息到达,没有用户消息就是第一条产出到达。空轮为 null。 */
+  /** When this turn started: the user message arrived, or with no user message, the first output arrived. Null for an empty turn. */
   startedAt: number | null
-  /** 这一轮收尾(idle 帧到达)的时刻;还没收尾、或这一轮没有用户消息可记,为 null。 */
+  /** When this turn closed (the idle frame arrived); null if not yet closed, or if the turn has no user message to key it on. */
   endedAt: number | null
 }
 
@@ -37,12 +37,12 @@ function isPrompt(item: Item): item is MessageItem {
 }
 
 /**
- * 按回合分组,顺便让工具认亲。
+ * Groups by turn, and lets tools find their parents along the way.
  *
- * 谁派出了这个工具,协议没有字段可问 —— alwith-cli 放在 `_meta.claudeCode.parentToolUseId`。
- * 所以跟「活过回合」一样,判据由 `FoldPolicy` 给,不给就全是平的。
+ * Who dispatched a tool has no protocol field to ask: alwith-cli puts it in `_meta.claudeCode.parentToolUseId`.
+ * So like "outlives the turn", the criterion is supplied by `FoldPolicy`; without it everything is flat.
  *
- * 认不到父亲的子工具按顶层处理:父亲可能在已经裁掉的历史里,让它凭空消失比放错地方更糟。
+ * A sub-tool whose parent cannot be found is treated as top-level: the parent may be in already-trimmed history, and making it vanish is worse than misplacing it.
  */
 export function turns(session: Session, policy: FoldPolicy = {}): Turn[] {
   const nodes = new Map<string, ToolNode>()

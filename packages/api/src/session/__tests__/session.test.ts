@@ -99,7 +99,7 @@ describe("ACP transcript", () => {
     expect((session.items[0] as typeof tool).title).toBeNull()
   })
 
-  test("失败的回合保留 stopReason 与原始 _meta,直到下一轮开跑", () => {
+  test("a failed turn keeps stopReason and the raw _meta until the next turn starts", () => {
     let session = createSession("a", "/tmp")
     session = applyUpdate(session, {
       sessionUpdate: "state_update",
@@ -111,8 +111,8 @@ describe("ACP transcript", () => {
         }
       }
     })
-    // 包只说协议知道的那件事:这一轮以 `_error` 收尾,`_meta` 原样带出。
-    // 「boom / network / 可重试」是 codex 的方言,由应用自己去读。
+    // The package states only what the protocol knows: this turn ended with `_error`, and `_meta` is passed through as is.
+    // "boom / network / retryable" is Codex's dialect; the app reads it itself.
     expect(session.error).toEqual({
       stopReason: "_error",
       meta: { codex: { error: { message: "boom", category: "network", retryable: true } } }
@@ -151,8 +151,8 @@ describe("ACP transcript", () => {
   })
 })
 
-describe("没带 messageId 的 chunk", () => {
-  test("紧挨着的同类消息并进去,中间隔了别的就另起一条 —— 后面的话不能跑到工具前面去", () => {
+describe("chunks without a messageId", () => {
+  test("adjacent messages of the same kind merge; anything in between starts a new item, so later text never jumps ahead of a tool", () => {
     let session = createSession("s", "/tmp")
     const feed = (update: Record<string, unknown>) => (session = applyUpdate(session, update as never))
     feed({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "先读" } })
@@ -173,7 +173,7 @@ describe("没带 messageId 的 chunk", () => {
     ])
   })
 
-  test("不并进本地先上屏的那条用户消息", () => {
+  test("does not merge into the locally shown user message", () => {
     let session = addPrompt(createSession("s", "/tmp"), [{ type: "text", text: "hi" }], "local")
     session = applyUpdate(session, { sessionUpdate: "user_message_chunk", content: { type: "text", text: "x" } } as never)
     expect(session.items).toHaveLength(2)
@@ -181,8 +181,8 @@ describe("没带 messageId 的 chunk", () => {
   })
 })
 
-describe("工具的终端", () => {
-  test("按产出里的 terminal 引用找,不按工具 id 猜", () => {
+describe("tool terminals", () => {
+  test("found through the terminal reference in the output, never guessed from the tool id", () => {
     let session = createSession("s", "/tmp")
     const feed = (update: Record<string, unknown>) => (session = applyUpdate(session, update as never))
     feed({ sessionUpdate: "tool_call_update", toolCallId: "call-1", name: "Bash", content: [{ type: "terminal", terminalId: "term-9" }] })
@@ -192,7 +192,7 @@ describe("工具的终端", () => {
     expect(tool?.kind === "tool" ? terminalOf(tool, session.terminals)?.command : null).toBe("ls")
   })
 
-  test("没有引用、或引用的终端还没到,就是 null", () => {
+  test("null when there is no reference or the referenced terminal has not arrived", () => {
     let session = createSession("s", "/tmp")
     session = applyUpdate(session, { sessionUpdate: "tool_call_update", toolCallId: "call-1", name: "Read" } as never)
     const tool = session.items[0]

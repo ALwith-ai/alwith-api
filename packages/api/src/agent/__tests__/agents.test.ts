@@ -11,19 +11,19 @@ import type {
 
 const flush = () => new Promise<void>(resolve => setTimeout(resolve, 0))
 
-/** 只做 Agents 会碰的那几条:起停、接管、握手、ACP 三个动词、三条订阅。其余不实现。 */
+/** Only what Agents touches: start/stop, attach, handshake, the three ACP verbs, the three subscriptions. Nothing else is implemented. */
 class FakeRuntime implements Partial<RuntimeClient<{ engine: string }>> {
   readonly calls: string[] = []
   running = new Set<string>()
   attachable = new Map<string, RuntimeAttachInfo>()
-  /** 请求 → 答复;按 method 脚本化,默认原样回 params。 */
+  /** Request → reply, scripted per method; by default echoes params back. */
   answer: (method: string, params: unknown) => unknown = (_method, params) => params
   private readonly notificationHandlers = new Set<(n: RuntimeAcpNotification) => void>()
   private readonly requestHandlers = new Set<(r: RuntimeAcpAgentRequest) => void>()
   private readonly exitHandlers = new Set<(e: RuntimeExitPayload) => void>()
   readonly responded: Array<{ agentId: string; id: unknown; result?: unknown; error?: unknown }> = []
   readonly notified: Array<{ agentId: string; method: string; params: unknown }> = []
-  /** 悬着不答的请求,测试自己决定何时答。 */
+  /** Requests left pending; the test decides when to answer them. */
   hang = new Set<string>()
   private readonly hung: Array<{ resolve: (v: unknown) => void }> = []
 
@@ -35,7 +35,7 @@ class FakeRuntime implements Partial<RuntimeClient<{ engine: string }>> {
   async stop(agentId: string): Promise<void> {
     this.calls.push(`stop ${agentId}`)
     this.running.delete(agentId)
-    // Runtime 的 exit 事件在清理之后才来
+    // The Runtime's exit event only arrives after cleanup
     queueMicrotask(() => this.exit(agentId))
   }
   exit(agentId: string): void {
@@ -101,8 +101,8 @@ function make() {
   return { runtime, agents }
 }
 
-describe("起与接管", () => {
-  test("start:起进程、握手一次、只收自己这个 agent 的通知与请求", async () => {
+describe("start and attach", () => {
+  test("start: spawns the process, handshakes once, receives only its own agent's notifications and requests", async () => {
     const { runtime, agents } = make()
     const agent = await agents.start("a1", { engine: "alwith" }, "alwith")
     expect(runtime.calls).toEqual(["start a1", "initialize a1 test-app"])
@@ -116,7 +116,7 @@ describe("起与接管", () => {
     expect(seen).toEqual(["session/update", "req session/request_permission"])
   })
 
-  test("同一个 agentId 还活着时再 start 被 Runtime 拒绝;replace 是停、等退出、再起", async () => {
+  test("start while the same agentId is alive is refused by the Runtime; replace stops, waits for exit, then starts", async () => {
     const { runtime, agents } = make()
     const first = await agents.start("a1", { engine: "alwith" })
     await expect(agents.start("a1", { engine: "dsh" })).rejects.toThrow("still running")
@@ -124,11 +124,11 @@ describe("起与接管", () => {
     expect(first.alive).toBe(false)
     expect(second.alive).toBe(true)
     expect(second.engine).toBe("dsh")
-    // 被拒的那次 start 也到了 Runtime(是它拒的),所以记了两笔 start 再 stop
+    // The refused start also reached the Runtime (which refused it), so two starts are recorded before the stop
     expect(runtime.calls.filter(c => !c.startsWith("initialize"))).toEqual(["start a1", "start a1", "stop a1", "start a1"])
   })
 
-  test("attach:Runtime 里有活的就接管,握手走缓存,交回没答的请求;没有就是 null", async () => {
+  test("attach: takes over a live agent in the Runtime, uses the cached handshake and hands back unanswered requests; null when there is none", async () => {
     const { runtime, agents } = make()
     const pending = [{ id: 7, method: "session/request_permission", params: {} }]
     runtime.attachable.set("s1", { agentId: "live", engine: "alwith", provider: "anthropic", pendingAgentRequests: pending })
@@ -141,7 +141,7 @@ describe("起与接管", () => {
     expect(await agents.attach("nobody")).toBeNull()
   })
 
-  test("接管到已经持有的 agent 不重复握手", async () => {
+  test("attaching to an agent already held does not handshake again", async () => {
     const { runtime, agents } = make()
     runtime.attachable.set("s1", { agentId: "live", engine: "alwith", provider: "", pendingAgentRequests: [] })
     runtime.attachable.set("s2", { agentId: "live", engine: "alwith", provider: "", pendingAgentRequests: [] })
@@ -152,8 +152,8 @@ describe("起与接管", () => {
   })
 })
 
-describe("请求", () => {
-  test("agent 退出时在飞的请求立刻失败,不永挂;之后不再收它的事件", async () => {
+describe("requests", () => {
+  test("in-flight requests fail immediately when the agent exits instead of hanging; its events are no longer received", async () => {
     const { runtime, agents } = make()
     const agent = await agents.start("a1", { engine: "alwith" })
     runtime.hang.add("session/prompt")
@@ -169,7 +169,7 @@ describe("请求", () => {
     expect(runtime.listeners).toBe(0)
   })
 
-  test("stop 等到 exit 才算停完;停掉的不算崩溃", async () => {
+  test("stop completes only on exit; a stopped agent is not a crash", async () => {
     const { runtime, agents } = make()
     const agent = await agents.start("a1", { engine: "alwith" })
     const exits: string[] = []
@@ -178,12 +178,12 @@ describe("请求", () => {
     expect(agent.alive).toBe(false)
     expect(runtime.running.has("a1")).toBe(false)
     await flush()
-    // 自己停的也算进程没了:exited resolve、持有表里摘掉、onExit 照发 —— 是不是主动的应用自己知道
+    // A self-initiated stop still means the process is gone: exited resolves, the agent leaves the held table and onExit fires; the app knows whether it asked for it
     expect(agents.get("a1")).toBeUndefined()
     expect(exits).toEqual(["a1"])
   })
 
-  test("detach:放手不停进程,在飞的失败,进程还在 Runtime 里", async () => {
+  test("detach: lets go without stopping the process; in-flight requests fail and the process stays in the Runtime", async () => {
     const { runtime, agents } = make()
     const agent = await agents.start("a1", { engine: "alwith" })
     runtime.hang.add("session/prompt")
@@ -195,7 +195,7 @@ describe("请求", () => {
     expect(agents.get("a1")).toBeUndefined()
   })
 
-  test("带 signal 的请求:abort 后发 $/cancel_request 并本地立即失败,迟到的答复被丢", async () => {
+  test("a request with a signal: abort sends $/cancel_request and fails locally at once; a late reply is dropped", async () => {
     const { runtime, agents } = make()
     const agent = await agents.start("a1", { engine: "alwith" })
     runtime.hang.add("_alwith/login")
@@ -208,7 +208,7 @@ describe("请求", () => {
     await flush()
   })
 
-  test("respond 带原来的 id 回给 agent", async () => {
+  test("respond answers the agent with the original id", async () => {
     const { runtime, agents } = make()
     const agent = await agents.start("a1", { engine: "alwith" })
     await agent.respond(9, { outcome: { outcome: "cancelled" } })
@@ -216,8 +216,8 @@ describe("请求", () => {
   })
 })
 
-describe("Runtime 故障", () => {
-  test("fail:在飞的立刻失败,agent 仍持有,之后还能发", async () => {
+describe("Runtime failure", () => {
+  test("fail: in-flight requests fail at once, the agent is still held and can send again", async () => {
     const { runtime, agents } = make()
     const agent = await agents.start("a1", { engine: "alwith" })
     runtime.hang.add("session/prompt")

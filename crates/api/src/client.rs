@@ -1,9 +1,14 @@
-//! `alwith-runtime-v1` 的 Rust 客户端。宿主(Desktop)和模块子进程用它跟 Runtime 说话,帧与 TS 的
-//! `FrameHubPort` 完全相同:请求 `{id, method, params}`,响应 `{id, result | error}`,事件带 `type`。
+//! Rust client for `alwith-runtime-v1`. The host (Desktop) and module subprocesses use it to talk
+//! to Runtime; the frames are identical to the TS
+//! `FrameHubPort`: requests `{id, method, params}`, responses `{id, result | error}`, events carry
+//! `type`.
 //!
-//! 两种接法:[`RuntimeClient::spawn`] 起一个 `alwith-runtime --listen stdio://` 子进程并接管它的管道;
-//! [`RuntimeClient::over`] 接任意一对读写流(测试、unix socket)。事件经 [`RuntimeClient::events`] 广播,
-//! 慢消费者会收到 `Lagged`,与 stdio 入口的 `lagged` 事件同义:用 `session_events` 补齐。
+//! Two ways to connect: [`RuntimeClient::spawn`] starts an `alwith-runtime --listen stdio://` child
+//! process and takes over its pipes;
+//! [`RuntimeClient::over`] attaches to any pair of read/write streams (tests, unix socket). Events
+//! are broadcast via [`RuntimeClient::events`],
+//! and a slow consumer receives `Lagged`, equivalent to the stdio entry's `lagged` event: refill
+//! with `session_events`.
 
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -18,23 +23,30 @@ use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
-/// 一条从 Runtime 来的事件帧。协议事件按 [`RuntimeEvent`] 解;宿主扩展事件走 `Other`。
+/// An event frame coming from Runtime. Protocol events are decoded as [`RuntimeEvent`]; host
+/// extension events go to `Other`.
 ///
-/// 投递承诺:每条会话里进了日志的帧(带 `session_id` + `sequence` 的 outbound / acpNotification /
-/// acpAgentRequest)按日志顺序、恰好一次地送到订阅者。Runtime 在 stdio 宿主跟不上时会丢事件并发
-/// `lagged`,慢 ws 连接会被断开;这里按序号发现漏洞,先用 `sessionEvents` 补上,再投后面的。
-/// 日志里也没有了的那段以 `Gap` 报出来,不装作连续。
+/// Delivery promise: every journaled frame of a session (outbound / acpNotification /
+/// acpAgentRequest carrying `session_id` + `sequence`)
+/// is delivered to subscribers in journal order, exactly once. Runtime drops events and sends
+/// `lagged` when the stdio host cannot keep up,
+/// and a slow ws connection is disconnected; here gaps are detected by sequence number, refilled
+/// first via `sessionEvents`, and only then are later frames delivered.
+/// A span that is gone from the journal too is reported as `Gap`, never pretending to be
+/// continuous.
 #[derive(Clone, Debug)]
 pub enum ClientEvent {
     Runtime(RuntimeEvent),
-    /// 补不回来的那段:日志已经丢了 `from..=to`,这段什么都没投;应用该重载这条会话。
+    /// A span that cannot be refilled: the journal has lost `from..=to` and nothing of it was
+    /// delivered; the app should reload this session.
     Gap {
         session_id: String,
         from: u64,
         to: u64,
     },
     Other(Value),
-    /// 读端结束:对端退出或 stdin EOF。之后 `request` 一律报错;模块收到它就该收工。
+    /// Read side ended: the peer exited or stdin hit EOF. Afterwards every `request` errors; a
+    /// module receiving this should wrap up.
     Closed {
         reason: String,
     },
@@ -57,26 +69,27 @@ struct ResponseEnvelope {
     error: Option<ResponseError>,
 }
 
-/// `cliStatus` 的回答。
-/// 对方(Runtime)发来的请求怎么答:模块子进程用它接 `modules/<name>/<method>` 转来的调用。
+/// The answer to `cliStatus`.
+/// How to answer requests coming from the peer (Runtime): a module subprocess uses it to serve
+/// calls forwarded from `modules/<name>/<method>`.
 pub type RequestHandler = Arc<
     dyn Fn(String, Value) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, ResponseError>> + Send>>
         + Send
         + Sync,
 >;
 
-/// 补齐时一页要多少帧;Runtime 一页最多 2000。
+/// Frames per page when refilling; Runtime returns at most 2000 per page.
 const REFILL_PAGE: usize = 2_000;
-/// 补齐中又有帧插进来时最多再补几轮,之后报 Gap。
+/// Maximum extra refill rounds when frames slip in during a refill, after which Gap is reported.
 const REFILL_ROUNDS: u32 = 2;
 
-/// 一条会话在日志里走到哪了。
+/// Where a session has got to in the journal.
 struct SessionCursor {
     agent_id: String,
-    /// 最后投出去的序号;第一条带序号的帧之前是 None。
+    /// Last delivered sequence number; None before the first sequenced frame.
     last: Option<u64>,
     refilling: bool,
-    /// 补齐期间到的活帧,补完按序投出。
+    /// Live frames that arrived during a refill, delivered in order once it finishes.
     parked: Vec<(u64, RuntimeEvent)>,
 }
 
@@ -86,8 +99,10 @@ enum Verdict {
     Gap,
 }
 
-/// 这一帧相对最后投出的那帧:下一号(或第一次见)就投;高位之后又来 0 是引擎重放了历史
-/// (带 `replayFrom` 的 resume 清日志),也投;不高于 last 的是重复;更靠后的说明中间丢了。
+/// This frame relative to the last delivered one: the next number (or first sighting) is delivered;
+/// a 0 after a higher number means the engine replayed history
+/// (a resume with `replayFrom` clears the journal) and is also delivered; a number not above last
+/// is a duplicate; a later one means something in between was lost.
 fn verdict(last: Option<u64>, sequence: u64) -> Verdict {
     match last {
         None => Verdict::Deliver,
@@ -98,7 +113,7 @@ fn verdict(last: Option<u64>, sequence: u64) -> Verdict {
     }
 }
 
-/// 活事件上的日志位置:进了日志的三种事件才有。
+/// Journal position on a live event: only the three journaled event kinds have one.
 fn journal_position(event: &RuntimeEvent) -> Option<(String, u64, String)> {
     match event {
         RuntimeEvent::Outbound { agent_id, session_id: Some(session_id), sequence: Some(sequence), .. }
@@ -110,7 +125,8 @@ fn journal_position(event: &RuntimeEvent) -> Option<(String, u64, String)> {
     }
 }
 
-/// 日志里的一帧,按它当初作为活事件的样子还原。响应帧(我们自己请求的回答)没有可重放的。
+/// A frame in the journal, restored as it looked when it was a live event. Response frames (answers
+/// to our own requests) are not replayable.
 fn journaled_event(agent_id: &str, session_id: &str, frame: &SessionEventFrame) -> Option<RuntimeEvent> {
     let position = (Some(session_id.to_string()), Some(frame.sequence));
     if frame.direction == crate::FrameDirection::Out {
@@ -145,14 +161,16 @@ fn journaled_event(agent_id: &str, session_id: &str, frame: &SessionEventFrame) 
 
 struct Shared {
     pending: Mutex<HashMap<u64, oneshot::Sender<Result<Value, ResponseError>>>>,
-    /// 每个订阅者一条无界队列:进程内不丢,慢消费者只是内存多占一点,不会再有第二个丢点。
+    /// One unbounded queue per subscriber: nothing is lost in-process, a slow consumer just uses a
+    /// bit more memory, so there is no second drop point.
     subscribers: Mutex<Vec<mpsc::UnboundedSender<ClientEvent>>>,
     cursors: Mutex<HashMap<String, SessionCursor>>,
     next_id: AtomicU64,
     closed: Mutex<Option<String>>,
     closed_notify: tokio::sync::Notify,
     handler: Option<RequestHandler>,
-    /// 回答对方请求、发事件、补齐用的请求都走这条写端(与 `RuntimeClient::writer` 同一条流)。
+    /// Answering peer requests, sending events, and refill requests all go through this write end
+    /// (the same stream as `RuntimeClient::writer`).
     outbound: mpsc::UnboundedSender<String>,
 }
 
@@ -161,7 +179,8 @@ impl Shared {
         self.subscribers.lock().unwrap().retain(|subscriber| subscriber.send(event.clone()).is_ok());
     }
 
-    /// 读循环里发起的请求(补齐用):经 `outbound` 写出,响应仍由读循环配对。
+    /// Requests issued inside the read loop (for refill): written out via `outbound`, with
+    /// responses still paired by the read loop.
     async fn request(self: &Arc<Self>, method: &str, params: Value) -> Result<Value, ResponseError> {
         if let Some(reason) = self.closed.lock().unwrap().clone() {
             return Err(ResponseError::connection_lost(format!("{method}: {reason}")));
@@ -182,7 +201,8 @@ impl Shared {
         }
     }
 
-    /// 带日志位置的活事件:投、排队、丢重复,或为前面的洞开一轮补齐。
+    /// A live event with a journal position: deliver, queue, drop a duplicate, or start a refill
+    /// round for a hole before it.
     fn route(self: &Arc<Self>, event: RuntimeEvent) {
         let Some((session_id, sequence, agent_id)) = journal_position(&event) else {
             self.emit(ClientEvent::Runtime(event));
@@ -216,7 +236,8 @@ impl Shared {
         }
     }
 
-    /// Runtime 说丢了(`lagged`)或重连之后:跟着的每条会话都从最后见到的序号补。
+    /// After Runtime says it dropped events (`lagged`) or after a reconnect: every followed session
+    /// refills from the last sequence seen.
     fn refill_all(self: &Arc<Self>) {
         let mut cursors = self.cursors.lock().unwrap();
         for (session_id, cursor) in cursors.iter_mut() {
@@ -227,8 +248,9 @@ impl Shared {
         }
     }
 
-    /// 从最后投出的序号往后拉 `sessionEvents`,按序投出,再投补齐期间攒下的活帧。
-    /// 日志里也没有的那段报一次 Gap。
+    /// Pull `sessionEvents` from the last delivered sequence onward, deliver in order, then deliver
+    /// the live frames accumulated during the refill.
+    /// A span missing from the journal too is reported once as a Gap.
     async fn refill(self: Arc<Self>, session_id: String, round: u32) {
         let (mut after, agent_id) = {
             let cursors = self.cursors.lock().unwrap();
@@ -240,7 +262,8 @@ impl Shared {
             let params = serde_json::json!({ "sessionId": session_id, "afterSequence": after, "limit": REFILL_PAGE });
             let frames: Vec<SessionEventFrame> = match self.request("sessionEvents", params).await {
                 Ok(value) => serde_json::from_value(value).unwrap_or_default(),
-                // 连接没了:重连那条路会再补;先把攒下的投出去。
+                // Connection gone: the reconnect path will refill again; deliver what has
+                // accumulated first.
                 Err(_) => break,
             };
             if frames.is_empty() {
@@ -269,8 +292,11 @@ impl Shared {
                 break;
             }
         }
-        // 攒下的活帧按序投;补完还有洞就再补一轮,轮数用完才报 Gap。持锁投递:emit 只是往队列里放,不等谁。
-        // 锁的作用域必须在下面的 await 之前结束(块表达式),否则这个 future 不是 Send。
+        // Deliver the accumulated live frames in order; if holes remain after refilling, refill
+        // another round, reporting Gap only once rounds run out. Deliver while holding the lock:
+        // emit only puts into a queue and waits for no one.
+        // The lock's scope must end before the awaits below (block expression), otherwise this
+        // future is not Send.
         let another_round = {
             let mut cursors = self.cursors.lock().unwrap();
             let cursor = cursors.get_mut(&session_id).expect("cursor");
@@ -316,7 +342,8 @@ pub struct RuntimeClient {
 }
 
 impl RuntimeClient {
-    /// 起 Runtime 子进程(stdin / stdout 接管,stderr 继承给宿主日志),等它的 `ready` 行。
+    /// Spawn the Runtime child process (stdin / stdout taken over, stderr inherited to the host
+    /// log) and wait for its `ready` line.
     pub async fn spawn(mut command: Command) -> std::io::Result<Self> {
         command.stdin(Stdio::piped()).stdout(Stdio::piped()).kill_on_drop(true);
         let mut child = command.spawn()?;
@@ -342,7 +369,8 @@ impl RuntimeClient {
         Ok(client)
     }
 
-    /// 任意一对流上的连接。`reader` 上每行一帧;`writer` 上每帧一行。
+    /// A connection over any pair of streams. One frame per line on `reader`; one line per frame on
+    /// `writer`.
     pub fn over<R, W>(reader: R, writer: W) -> Self
     where
         R: AsyncRead + Send + Unpin + 'static,
@@ -351,7 +379,8 @@ impl RuntimeClient {
         Self::over_with_handler(reader, writer, None)
     }
 
-    /// 同上,并接对方发来的请求:模块子进程就是这样一个"也会被调用的客户端"。
+    /// Same as above, and also serves requests sent by the peer: a module subprocess is exactly
+    /// such a "client that also gets called".
     pub fn over_with_handler<R, W>(reader: R, writer: W, handler: Option<RequestHandler>) -> Self
     where
         R: AsyncRead + Send + Unpin + 'static,
@@ -375,23 +404,27 @@ impl RuntimeClient {
         Self { writer, shared, reader_task, child: Mutex::new(None) }
     }
 
-    /// 发一条事件帧(`{"type": ...}`)。模块发的事件由 Runtime 包成 `{"type":"module"}` 广播给应用。
+    /// Send an event frame (`{"type": ...}`). Events sent by a module are wrapped by Runtime as
+    /// `{"type":"module"}` and broadcast to apps.
     pub fn emit(&self, event: Value) -> Result<(), ResponseError> {
         let mut line = event.to_string();
         line.push('\n');
         self.shared.outbound.send(line).map_err(|_| ResponseError::connection_lost("connection closed"))
     }
 
-    /// 订阅事件。每个订阅者一条无界队列:进程内不丢,`None` 即客户端已 drop。
-    /// 会话事件按序、恰好一次(见 [`ClientEvent`]);补不回来的洞是 `ClientEvent::Gap`。
+    /// Subscribe to events. One unbounded queue per subscriber: nothing is lost in-process, `None`
+    /// means the client has been dropped.
+    /// Session events arrive in order, exactly once (see [`ClientEvent`]); a hole that cannot be
+    /// refilled is `ClientEvent::Gap`.
     pub fn events(&self) -> mpsc::UnboundedReceiver<ClientEvent> {
         let (sender, receiver) = mpsc::unbounded_channel();
         self.shared.subscribers.lock().unwrap().push(sender);
         receiver
     }
 
-    /// 任意方法,含宿主扩展。错误就是响应帧里的 `error`(code / message / data 原样);
-    /// 连接断了是 `ResponseError::CONNECTION_LOST`。
+    /// Any method, including host extensions. An error is the `error` in the response frame (code /
+    /// message / data unchanged);
+    /// a lost connection is `ResponseError::CONNECTION_LOST`.
     pub async fn request(&self, method: &str, params: Option<Value>) -> Result<Value, ResponseError> {
         if let Some(reason) = self.shared.closed.lock().unwrap().clone() {
             return Err(ResponseError::connection_lost(format!("{method}: {reason}")));
@@ -428,9 +461,12 @@ impl RuntimeClient {
         params
     }
 
-    /// `owner`:连接下的子属主(桌面窗口 label);None 即连接本身,对所有子属主的 agent 有写权。
-    /// `launch` 是 Runtime 引擎表之上的启动参数 `{engine, cwd, args, env, provider, model, connection}`。
-    /// 起一个 agent 进程。同名进程还活着就报错:换芯是「先 stop、等 Exit 事件、再 start」。
+    /// `owner`: sub-owner under the connection (desktop window label); None means the connection
+    /// itself, which has write access to the agents of all sub-owners.
+    /// `launch` is the launch parameters on top of Runtime's engine table `{engine, cwd, args, env,
+    /// provider, model, connection}`.
+    /// Start an agent process. Errors if a process of the same name is still alive: switching
+    /// engine is "stop first, wait for the Exit event, then start".
     pub async fn start(&self, agent_id: &str, launch: Value, owner: Option<&str>) -> Result<(), ResponseError> {
         let params = Self::with_owner(serde_json::json!({ "agentId": agent_id, "launch": launch }), owner);
         self.request("start", Some(params)).await.map(|_| ())
@@ -511,7 +547,7 @@ impl RuntimeClient {
         self.typed("runStates", None).await
     }
 
-    /// Runtime 自己的版本(与 `alwith-runtime --version` 同一个数)。
+    /// Runtime's own version (the same number as `alwith-runtime --version`).
     pub async fn version(&self) -> Result<String, ResponseError> {
         self.typed("version", None).await
     }
@@ -524,9 +560,10 @@ impl RuntimeClient {
         self.request("ping", None).await.map(|_| ())
     }
 
-    // ---- ACP:Runtime 代你说 ACP v2。原始的 send / inbound 仍可用。 ----
+    // ---- ACP: Runtime speaks ACP v2 on your behalf. The raw send / inbound remain available. ----
 
-    /// 任意 ACP 请求,Runtime 编 id、等响应。`request_id`:自己选 id(要发 `$/cancel_request` 撤回时才需要)。
+    /// Any ACP request; Runtime assigns the id and awaits the response. `request_id`: pick your own
+    /// id (needed only to retract with `$/cancel_request`).
     pub async fn acp_request(
         &self, agent_id: &str, method: &str, params: Value, request_id: Option<Value>, owner: Option<&str>,
     ) -> Result<Value, ResponseError> {
@@ -545,7 +582,7 @@ impl RuntimeClient {
         self.request("acpNotify", Some(params)).await.map(|_| ())
     }
 
-    /// 回答 agent 的请求(`RuntimeEvent::AcpAgentRequest` 里的 `id`)。
+    /// Answer an agent request (the `id` in `RuntimeEvent::AcpAgentRequest`).
     pub async fn acp_respond(
         &self, agent_id: &str, id: Value, result: Option<Value>, error: Option<Value>, owner: Option<&str>,
     ) -> Result<(), ResponseError> {
@@ -556,7 +593,9 @@ impl RuntimeClient {
         self.request("acpRespond", Some(params)).await.map(|_| ())
     }
 
-    /// ACP 握手,可带自己的客户端信息与能力;已握过就回缓存。会话方法会自动以默认身份握手,只有要声明能力时才需要调。
+    /// ACP handshake, optionally with your own client info and capabilities; returns the cached
+    /// result if already done. Session methods handshake automatically with a default identity;
+    /// call this only to declare capabilities.
     pub async fn initialize(
         &self, agent_id: &str, info: Option<Value>, capabilities: Option<Value>, owner: Option<&str>,
     ) -> Result<Value, ResponseError> {
@@ -567,7 +606,8 @@ impl RuntimeClient {
         self.request("initialize", Some(params)).await
     }
 
-    /// 建会话(第一次先握手)。返回 ACP `session/new` 的结果,`sessionId` 在里面。
+    /// Create a session (handshaking first if needed). Returns the ACP `session/new` result,
+    /// containing `sessionId`.
     pub async fn session_new(
         &self, agent_id: &str, cwd: &str, mcp_servers: Vec<Value>, meta: Option<Value>, owner: Option<&str>,
     ) -> Result<Value, ResponseError> {
@@ -611,7 +651,8 @@ impl RuntimeClient {
         self.request("sessionFork", Some(params)).await
     }
 
-    /// 一轮对话,回合结束才返回(`{stopReason, _meta}`);过程走 `AcpNotification` 事件。
+    /// One turn, returns only when the turn ends (`{stopReason, _meta}`); progress arrives as
+    /// `AcpNotification` events.
     pub async fn prompt(
         &self, agent_id: &str, session_id: &str, prompt: Value, meta: Option<Value>, owner: Option<&str>,
     ) -> Result<Value, ResponseError> {
@@ -627,24 +668,29 @@ impl RuntimeClient {
         self.request("cancel", Some(params)).await.map(|_| ())
     }
 
-    /// 立刻杀掉子进程(退出兜底;正常路径用 `shutdown`)。没有子进程时无事。
+    /// Kill the child process immediately (exit fallback; the normal path uses `shutdown`). No-op
+    /// if there is no child process.
     pub fn kill(&self) {
         if let Some(child) = self.child.lock().unwrap().as_mut() {
             let _ = child.start_kill();
         }
     }
 
-    /// 连接是否已断(读端结束或子进程退出)。
+    /// Whether the connection is already down (read side ended or child process exited).
     pub fn closed(&self) -> Option<String> {
         self.shared.closed.lock().unwrap().clone()
     }
 
-    /// 退出链:先请 Runtime 走(`shutdown` 方法,它给模块与 agent 2 秒收尾窗后 kill_all),等连接结束;
-    /// `grace` 内没结束就强杀子进程。直接 kill 会让 agent 派生的进程组留活,所以先礼后兵。
-    /// 与 [`Self::shutdown`] 的差别:不消费 self,宿主用 `Arc<RuntimeClient>` 也能调。
+    /// Exit chain: first ask Runtime to leave (the `shutdown` method; it gives modules and agents a
+    /// 2-second wind-down window and then kill_all), and wait for the connection to end;
+    /// if it has not ended within `grace`, force-kill the child process. Killing directly would
+    /// leave the agent's spawned process groups alive, so courtesy first, force second.
+    /// Difference from [`Self::shutdown`]: it does not consume self, so a host holding an
+    /// `Arc<RuntimeClient>` can call it too.
     pub async fn close(&self, grace: std::time::Duration) {
         let deadline = tokio::time::Instant::now() + grace;
-        // 先登记等待,再看是否已经关了:`notify_waiters` 只叫醒已登记的,不然回执与 EOF 一起到时会错过。
+        // Register the wait first, then check whether it is already closed: `notify_waiters` only
+        // wakes registered waiters, otherwise a receipt arriving together with EOF would be missed.
         let closed = self.shared.closed_notify.notified();
         tokio::pin!(closed);
         closed.as_mut().enable();
@@ -659,7 +705,8 @@ impl RuntimeClient {
         }
     }
 
-    /// 关闭写端(Runtime 收到 EOF 即 kill_all 退出),等读端结束;有子进程则回收它。
+    /// Close the write end (Runtime kill_all's and exits on EOF), wait for the read side to end;
+    /// reap the child process if there is one.
     pub async fn shutdown(mut self) {
         {
             let mut writer = self.writer.lock().await;
@@ -716,10 +763,11 @@ async fn read_loop<R: AsyncRead + Unpin>(mut reader: BufReader<R>, shared: Arc<S
                 continue;
             }
         };
-        // 先认事件:事件帧也可能带 `method`(如 acpNotification),不能当成对端的请求。
+        // Recognize events first: an event frame may also carry `method` (e.g. acpNotification) and
+        // must not be taken for a request from the peer.
         if value.get("type").is_some() {
             match value.get("type").and_then(Value::as_str) {
-                // Runtime 这条连接丢了事件:跟着的每条会话都补一遍。
+                // Runtime dropped events on this connection: refill every followed session.
                 Some("lagged") => shared.refill_all(),
                 _ => match serde_json::from_value::<RuntimeEvent>(value.clone()) {
                     Ok(event) => shared.route(event),
@@ -787,11 +835,13 @@ async fn read_loop<R: AsyncRead + Unpin>(mut reader: BufReader<R>, shared: Arc<S
 
 #[cfg(test)]
 mod tests {
-    //! 对着一个假对端(按协议答帧的小循环),不需要真 Runtime;对着真 Runtime 的往返测试在 Runtime 仓。
+    //! Runs against a fake peer (a small loop answering frames per the protocol), no real Runtime
+    //! needed; round-trip tests against a real Runtime live in the Runtime repo.
     use super::*;
     use tokio::io::{AsyncWriteExt, DuplexStream};
 
-    /// 假对端:`ping` 答 `"pong"`,`nope` 答错误,`lines` 请求让它广播一条 lines 事件;收到事件帧原样回写。
+    /// Fake peer: `ping` answers `"pong"`, `nope` answers an error, a `lines` request makes it
+    /// broadcast one lines event; event frames received are written back as is.
     fn fake_peer() -> (RuntimeClient, JoinHandle<Vec<Value>>) {
         let (client_reader, peer_writer) = tokio::io::duplex(64 * 1024);
         let (peer_reader, client_writer) = tokio::io::duplex(64 * 1024);
@@ -826,8 +876,9 @@ mod tests {
         seen_events
     }
 
-    /// 有日志的假对端:`sessionEvents` 按 afterSequence 从给定帧里答;`shutdown` 回执后关掉自己的写端。
-    /// 测试用 `push` 往客户端塞事件帧。
+    /// Fake peer with a journal: `sessionEvents` answers from the given frames by afterSequence;
+    /// after the `shutdown` receipt it closes its own write end.
+    /// The test uses `push` to inject event frames into the client.
     fn fake_peer_with_journal(journal: Vec<Value>) -> (RuntimeClient, mpsc::UnboundedSender<Value>) {
         let (client_reader, mut peer_writer) = tokio::io::duplex(64 * 1024);
         let (peer_reader, client_writer) = tokio::io::duplex(64 * 1024);
@@ -880,7 +931,8 @@ mod tests {
         serde_json::json!({ "sequence": sequence, "recordedAt": 1, "direction": "in", "line": line.to_string() })
     }
 
-    /// 收够 `count` 条会话事件(或 Gap),返回序号序列;Gap 记成 `None`。
+    /// Collect `count` session events (or a Gap), returning the sequence of numbers; a Gap is
+    /// recorded as `None`.
     async fn collect(events: &mut mpsc::UnboundedReceiver<ClientEvent>, count: usize) -> Vec<Option<u64>> {
         let mut seen = Vec::new();
         while seen.len() < count {
@@ -928,7 +980,7 @@ mod tests {
         push.send(serde_json::json!({ "type": "lagged", "dropped": 2 })).unwrap();
         push.send(update(2)).unwrap();
         push.send(update(3)).unwrap();
-        // 0 活的;lagged 后补 1、2;活的 2 是重复,丢;3 接上。
+        // 0 live; after lagged refill 1, 2; live 2 is a duplicate, dropped; 3 joins on.
         assert_eq!(collect(&mut events, 4).await, vec![Some(0), Some(1), Some(2), Some(3)]);
     }
 

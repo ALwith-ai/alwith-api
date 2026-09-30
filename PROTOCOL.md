@@ -1,138 +1,138 @@
-# ALwith Runtime 协议（alwith-runtime-v1）
+# ALwith Runtime Protocol (alwith-runtime-v1)
 
-这份文档给要做自己的 WorkBuddy 的人：只拿 `alwith-runtime` 二进制、这份协议和本仓的客户端，不看 ALwith 任何应用的源码，就能起 agent、聊天、审批、看历史。
+This document is for people building their own WorkBuddy: with only the `alwith-runtime` binary, this protocol and this repo's clients, and without reading the source of any ALwith application, you can start agents, chat, approve requests and view history.
 
-Runtime 只做四件事：托管 agent 进程、维护会话运行态、记会话日志、加载模块。它不解析你和 agent 之间的对话内容，也不管界面、身份和存储——那些是你的应用的事。
+The Runtime does only four things: hosts agent processes, maintains session run state, keeps session journals, and loads modules. It does not parse the conversation between you and the agent, and it does not handle UI, identity or storage; those are your application's business.
 
 ---
 
-## 1. 你拿到什么
+## 1. What you get
 
-| 东西 | 在哪 | 干什么 |
+| Item | Where | What it does |
 | --- | --- | --- |
-| `alwith-runtime` 二进制 | npm 的 `@alwith/runtime`：`optionalDependencies` 按平台装一个 `@alwith/runtime-<os>-<cpu>`，构建时 `stageRuntime()` 校验 sha 后拷进你的 sidecar；不用 npm 的话 registry 上的 tgz 是公开 HTTPS 地址，`curl` 也行 | 唯一共享的进程，你的应用 spawn 它或连它 |
-| `@alwith/api` | 本仓 `packages/api` | TypeScript：`./runtime` 连 Runtime、`./agent` 持有 agent、`./session` 会话状态；传输 WebSocket / Tauri 中转 / Node 子进程 |
-| `alwith-api` | 本仓 `crates/api` | Rust：协议类型 + 客户端（feature `client`）：spawn 一个 Runtime 走 stdio，或接任意字节流 |
-| 一个 ACP agent | 你自己选：`alwith-cli --acp`、`codex-acp-v2`、任何说 ACP 的进程 | Runtime 只负责起它、转发它 |
+| `alwith-runtime` binary | npm `@alwith/runtime`: `optionalDependencies` installs one `@alwith/runtime-<os>-<cpu>` per platform, and at build time `stageRuntime()` verifies the sha and copies it into your sidecar; without npm, the tgz on the registry is a public HTTPS address and `curl` works too | The only shared process; your application spawns it or connects to it |
+| `@alwith/api` | This repo's `packages/api` | TypeScript: `./runtime` connects to the Runtime, `./agent` owns agents, `./session` holds session state; transports are WebSocket / Tauri relay / Node child process |
+| `alwith-api` | This repo's `crates/api` | Rust: protocol types + a client (feature `client`): spawn a Runtime over stdio, or attach to any byte stream |
+| An ACP agent | Your choice: `alwith-cli --acp`, `codex-acp-v2`, any process that speaks ACP | The Runtime only starts it and forwards its traffic |
 
-agent 与你的应用之间说的是 [ACP](https://agentclientprotocol.com)（Agent Client Protocol，JSON-RPC 2.0），Runtime 原样转发。本文只讲 Runtime 自己的协议；ACP 看它的规范。
+Between the agent and your application the protocol is [ACP](https://agentclientprotocol.com) (Agent Client Protocol, JSON-RPC 2.0), which the Runtime forwards as is. This document covers only the Runtime's own protocol; for ACP see its specification.
 
 ---
 
-## 2. 起 Runtime
+## 2. Starting the Runtime
 
-两种入口，帧完全相同。
+Two entry points, with identical frames.
 
-### 2.1 stdio（应用 spawn 它）
+### 2.1 stdio (your application spawns it)
 
 ```sh
 ALWITH_RUNTIME_ENGINES='{"alwith":{"command":"/path/alwith-cli","args":["--acp"]}}' \
 alwith-runtime --listen stdio://
 ```
 
-- 第一行 stdout：`{"type":"ready","transport":"stdio"}`，之后 stdin 进请求、stdout 出响应与事件，一行一帧。
-- stdout 上只有协议帧，日志一律 stderr。
-- stdin 到 EOF = 应用走了：Runtime 停模块、杀所有 agent、退出。
-- 发 `{"id":n,"method":"shutdown"}` 也是走：先收到回执 `{"id":n,"result":null}`，然后和 EOF 同一条收尾。起子进程的宿主不一定关得了自己那头的 stdin（Tauri 的 sidecar 就不能），所以给一个方法。**退出链**：先 `shutdown`、等进程结束（Runtime 内部给模块与 agent 2 秒收尾窗），超时再强杀——直接 SIGKILL Runtime 会让 agent 派生的进程组留活。
-- 没有 token：管道本身就是授权。这条连接的属主 id 固定是 `stdio`。
-- 写端是独立任务：应用不读 stdout 时堵住的只是事件，`shutdown`、EOF 照样立刻处理。
-- `--listen stdio://` 是默认值，可省略。
+- First line on stdout: `{"type":"ready","transport":"stdio"}`; after that requests come in on stdin, and responses and events go out on stdout, one frame per line.
+- Only protocol frames appear on stdout; logs always go to stderr.
+- stdin reaching EOF = the application left: the Runtime stops modules, kills all agents and exits.
+- Sending `{"id":n,"method":"shutdown"}` also means leaving: you first receive the acknowledgement `{"id":n,"result":null}`, then it goes through the same wrap-up as EOF. A host that spawns a child process may not be able to close its own end of stdin (a Tauri sidecar cannot), so a method is provided. **Exit chain**: send `shutdown` first, wait for the process to end (the Runtime gives modules and agents a 2 second wrap-up window internally), and force-kill on timeout; SIGKILLing the Runtime directly leaves the process groups spawned by agents alive.
+- No token: the pipe itself is the authorization. This connection's owner id is fixed as `stdio`.
+- The writer is a separate task: when the application does not read stdout, only events get blocked, while `shutdown` and EOF are still handled immediately.
+- `--listen stdio://` is the default and can be omitted.
 
-### 2.2 WebSocket（浏览器、远程）
+### 2.2 WebSocket (browsers, remote)
 
 ```sh
 ALWITH_RUNTIME_TOKEN=secret ALWITH_RUNTIME_ADDR=127.0.0.1:0 \
 ALWITH_RUNTIME_ENGINES='{...}' alwith-runtime --listen ws://
-# 或直接 --listen ws://127.0.0.1:4321
+# or directly --listen ws://127.0.0.1:4321
 ```
 
-- 起来后 stdout 打一行：`{"type":"ready","transport":"ws","url":"ws://127.0.0.1:52341","port":52341}`。
-- WebSocket 挂在根路径 `/`；`GET /readyz`、`GET /healthz` 回 `ok` 给探针。
-- 握手鉴权走子协议（浏览器的 `WebSocket` 构造器不能自定义 header）：
+- Once up, it prints one line on stdout: `{"type":"ready","transport":"ws","url":"ws://127.0.0.1:52341","port":52341}`.
+- The WebSocket is mounted at the root path `/`; `GET /readyz` and `GET /healthz` return `ok` for probes.
+- Handshake authentication goes through subprotocols (the browser `WebSocket` constructor cannot set custom headers):
 
 ```
 Sec-WebSocket-Protocol: alwith-runtime-v1, alwith-auth.<token>
 ```
 
-缺任一个即 401。服务端回的子协议是 `alwith-runtime-v1`。
+Missing either one gives 401. The subprotocol the server replies with is `alwith-runtime-v1`.
 
-- 每条连接的属主 id 是 `web-<uuid>`。
-- 慢连接（事件队列 1024 条积满）会被断开；重连后用 `sessionEvents` 按 `sequence` 补齐。
+- Each connection's owner id is `web-<uuid>`.
+- Slow connections (event queue full at 1024 entries) are disconnected; after reconnecting, use `sessionEvents` to catch up by `sequence`.
 
-### 2.3 环境变量
+### 2.3 Environment variables
 
-| 变量 | 必需 | 含义 |
+| Variable | Required | Meaning |
 | --- | --- | --- |
-| `ALWITH_RUNTIME_ENGINES` | 是 | 引擎表，JSON，见 §5.1 |
-| `ALWITH_RUNTIME_TOKEN` | ws 时必需 | 握手 token |
-| `ALWITH_RUNTIME_ADDR` | 否 | `--listen ws://` 不带地址时的监听地址，缺省 `127.0.0.1:0` |
-| `ALWITH_RUNTIME_JOURNAL` | 否 | 会话日志目录，缺省平台缓存目录下 `alwith/runtime/sessions` |
-| `ALWITH_RUNTIME_PARENT_PID` | 否 | 父进程 pid；父进程没了 Runtime 自己退出（unix） |
-| `ALWITH_MODULES_DIR` | 否 | 模块目录（应用的 `node_modules`），见 §7 |
+| `ALWITH_RUNTIME_ENGINES` | Yes | Engine table, JSON, see §5.1 |
+| `ALWITH_RUNTIME_TOKEN` | Required for ws | Handshake token |
+| `ALWITH_RUNTIME_ADDR` | No | Listen address when `--listen ws://` has no address, default `127.0.0.1:0` |
+| `ALWITH_RUNTIME_JOURNAL` | No | Session journal directory, default `alwith/runtime/sessions` under the platform cache directory |
+| `ALWITH_RUNTIME_PARENT_PID` | No | Parent process pid; the Runtime exits by itself when the parent is gone (unix) |
+| `ALWITH_MODULES_DIR` | No | Module directory (the application's `node_modules`), see §7 |
 
-`alwith-runtime --version` 打版本；`version` 方法也报同一个版本。
+`alwith-runtime --version` prints the version; the `version` method reports the same version.
 
 ---
 
-## 3. 帧
+## 3. Frames
 
-一行一个 JSON，`\n` 结尾。三种帧，按字段区分：
+One JSON per line, ending in `\n`. Three kinds of frames, distinguished by their fields:
 
-**请求**（应用 → Runtime）
+**Request** (application → Runtime)
 
 ```json
 {"id": 1, "method": "runStates", "params": {}}
 ```
 
-`id` 是应用自己编的 u64，`params` 可省。方法名 camelCase。
+`id` is a u64 the application picks itself, and `params` may be omitted. Method names are camelCase.
 
-**响应**（Runtime → 应用）
+**Response** (Runtime → application)
 
 ```json
 {"id": 1, "result": [...], "error": null}
 {"id": 2, "result": null, "error": {"code": -32000, "message": "unknown engine foo; known: alwith, codex"}}
 ```
 
-成功 `error` 为 null，失败 `result` 为 null、`error` 是 JSON-RPC 形状的 `{code, message, data}`（`data` 没有时为 null）。请求帧解析失败也会回带原 `id`（取不到用 0），所以按 id 配对的 pending 不会永远挂着。
+On success `error` is null; on failure `result` is null and `error` is a JSON-RPC shaped `{code, message, data}` (`data` is null when absent). A request frame that fails to parse is also answered with the original `id` (0 if it cannot be obtained), so a pending entry paired by id never hangs forever.
 
-Runtime 自己的 `code` 只有三个：
+The Runtime's own `code` values are only three:
 
-| code | 含义 |
+| code | Meaning |
 | --- | --- |
-| `-32601` | 没有这个方法 |
-| `-32602` | 参数不对（帧不是合法 JSON、字段缺了、类型错了） |
-| `-32000` | Runtime 做不到：没有这个 agent、不是属主、agent 退出了… |
+| `-32601` | No such method |
+| `-32602` | Bad parameters (the frame is not valid JSON, a field is missing, a type is wrong) |
+| `-32000` | The Runtime cannot do it: no such agent, not the owner, the agent exited… |
 
-`acpRequest` 一类方法（§5.4）失败时，`error` 是 agent 回的那个 ACP 错误原样（`code` / `data` 都是 agent 的，比如 alwith-cli 的 `-32000 auth_required`）。客户端本地断线用 `-32001`，Runtime 不会发它。
+When a method of the `acpRequest` kind (§5.4) fails, `error` is the ACP error the agent returned, as is (`code` / `data` are the agent's, for example alwith-cli's `-32000 auth_required`). The client uses `-32001` for a local disconnect; the Runtime never sends it.
 
-**事件**（Runtime → 应用，主动推）
+**Event** (Runtime → application, pushed proactively)
 
 ```json
 {"type": "inbound", "agentId": "chat-1", "lines": ["{\"jsonrpc\":\"2.0\",...}"]}
 ```
 
-`type` 判别。事件对所有已连接的应用（和模块）全局广播，不分属主。
+`type` is the discriminator. Events are broadcast globally to all connected applications (and modules), regardless of owner.
 
-未知方法：`{"code": -32601, "message": "unknown runtime method <name>"}`。
-
----
-
-## 4. 属主
-
-- 每条连接是一个**属主**（stdio 是 `stdio`，ws 是 `web-<uuid>`，模块是 `module:<name>`）。
-- `start` 起的 agent 归起它的连接。**写类**操作（`send`、ACP 层的那几个、`stop`、`releaseSession`、`stopSession`）只有属主能做；读（`runStates`、`sessionEvents`、`agents`…）和 `markRead` 任何连接都能做。
-- **子属主**：写类请求和 `attachSession` 可带 `owner: "<label>"`（比如桌面的窗口 label），属主记为 `<连接>:<label>`。连接本身对名下所有子属主的 agent 都有写权，子属主之间互不可写。`detachOwner {owner}` 让一个子属主名下的 agent 改挂无主（进程不杀）。
-- 连接断开：它名下的 agent **不杀**，改挂无主（孤儿）。孤儿任何连接都可以 `stop`，或经 `attachSession` 认领后继续用。
-
-这就是"会话后台继续跑、任意窗口接管"的全部机制。
+Unknown method: `{"code": -32601, "message": "unknown runtime method <name>"}`.
 
 ---
 
-## 5. Agent
+## 4. Owners
 
-### 5.1 引擎表与 `start`
+- Each connection is an **owner** (`stdio` for stdio, `web-<uuid>` for ws, `module:<name>` for a module).
+- An agent started by `start` belongs to the connection that started it. **Write** operations (`send`, the ACP-layer ones, `stop`, `releaseSession`, `stopSession`) can only be done by the owner; reads (`runStates`, `sessionEvents`, `agents`…) and `markRead` can be done by any connection.
+- **Sub-owners**: write requests and `attachSession` may carry `owner: "<label>"` (for example a desktop window label), and the owner is recorded as `<connection>:<label>`. The connection itself has write access to the agents of all its sub-owners, while sub-owners cannot write to each other. `detachOwner {owner}` makes the agents under a sub-owner ownerless (the processes are not killed).
+- When a connection drops, the agents under it are **not killed**; they become ownerless (orphans). Any connection can `stop` an orphan, or claim it via `attachSession` and keep using it.
 
-引擎表告诉 Runtime 每种 agent 的可执行文件在哪：
+That is the entire mechanism behind "sessions keep running in the background and any window can take over".
+
+---
+
+## 5. Agents
+
+### 5.1 The engine table and `start`
+
+The engine table tells the Runtime where each kind of agent's executable is:
 
 ```json
 {
@@ -141,7 +141,7 @@ Runtime 自己的 `code` 只有三个：
 }
 ```
 
-`start` 起一个 agent 进程：
+`start` starts an agent process:
 
 ```json
 {"id": 1, "method": "start", "params": {
@@ -158,212 +158,212 @@ Runtime 自己的 `code` 只有三个：
 → {"id": 1, "result": null, "error": null}
 ```
 
-- `agentId` 由应用取名。**同一个 `agentId` 的进程同时只能有一个**：它还活着时再 `start` 直接报错 `agent <id> is still running`。换芯 = `stop` → 等 `exit` 事件 → `start`。
-- 为什么不允许隐式替换：一个进程被杀之后还有几十毫秒在把 stdout 排完。允许边杀边起，应用就会收到分不清属于谁的帧和退出事件。等它真的退出再起，这种帧根本不存在。
-- 顺带的产品规则：一轮对话没结束不该换芯。要换先 `cancel`，等这一轮收口。
-- `launch.engine` 查引擎表；`cwd`、`args`、`env` 追加在引擎表之上。
-- `launch.provider` / `model` / `connection` 只是标签，Runtime 原样放进 `agents` 和 `attachSession` 的结果里，不解释。
+- `agentId` is named by the application. **At most one process per `agentId` can exist at a time**: calling `start` while it is still alive fails immediately with `agent <id> is still running`. Swapping the engine = `stop` → wait for the `exit` event → `start`.
+- Why implicit replacement is not allowed: after a process is killed it still spends a few dozen milliseconds draining its stdout. If starting while killing were allowed, the application would receive frames and exit events it could not attribute. Starting only after it has really exited means such frames simply do not exist.
+- A product rule that follows: an engine should not be swapped while a turn is unfinished. To swap, `cancel` first and wait for the turn to wrap up.
+- `launch.engine` looks up the engine table; `cwd`, `args` and `env` are appended on top of the engine table.
+- `launch.provider` / `model` / `connection` are only labels; the Runtime places them as is in the results of `agents` and `attachSession` and does not interpret them.
 
-#### 可选供应商启动适配
+#### Optional provider launch adapter
 
-原始 launch 保留，适合自带配置的 CLI／ACP 适配器。引擎名不限制为 alwith 或 dsh；供应商启动使用引擎表声明的适配方式：
+The raw launch is kept, suitable for CLI / ACP adapters that bring their own configuration. Engine names are not restricted to alwith or dsh; provider launch uses the adaptation method declared in the engine table:
 
 ```json
 {"agentId":"chat-1","launch":{"providerConfig":{"engine":"alwith","providerId":"deepseek","modelId":"chosen-model"},"overrides":{"args":[],"env":{},"envRemove":[]}}}
 ```
 
-部署者通过 `ALWITH_RUNTIME_LAUNCH_RESOLVER` 选择已安装模块。Runtime 将 `providerConfig` 交给该模块的私有管道解析，再由 Runtime 自己启动 Agent。官方 `alwith-services` 模块从 `ALWITH_SETTINGS_PATH` 读取 `ai.providerConfigs` 并复用 CLI 适配库；不要求开启 fs/store/QA，不重写 CLI 的模型、工具、Skills、MCP。没有适配模块时原始 launch 仍可独立工作，providerConfig 则明确报错。Runtime 的编译不依赖这些模块或客户端 SDK。
+The deployer selects an installed module through `ALWITH_RUNTIME_LAUNCH_RESOLVER`. The Runtime hands `providerConfig` to that module's private pipe to resolve, and then the Runtime itself launches the agent. The official `alwith-services` module reads `ai.providerConfigs` from `ALWITH_SETTINGS_PATH` and reuses the CLI adapter library; it does not require fs/store/QA to be enabled, and does not rewrite the CLI's models, tools, Skills or MCP. Without an adapter module the raw launch still works on its own, while providerConfig fails explicitly. The Runtime's build does not depend on these modules or on the client SDK.
 
-- `providerConfig` 支持 engine、providerId、modelId、fastModelId、baseUrl、compatOverride、maxOutputTokens、modelOptions、supportsEffort、workspaceRoot、harnessPreset、dshProviderRoute；后两项仅对应适配器使用。
-- 顶层只能另带 `overrides`，不能混入原始 launch 字段。overrides 只允许 args、env、envRemove、cwd；args 追加，env 覆盖，cwd 有值时覆盖。配置了授权根时，cwd 同样接受路径校验。
-- 原始 launch 也支持 `envRemove: string[]`。应用顺序为引擎默认环境 → envRemove → 显式 env，确保切换供应商不会继承已要求删除的变量。
-- 采用 providerConfig 时，引擎表不要重复填写适配器提供的 `--acp` 或 dsh 入口参数。
-- `engines/probeCapabilities` 由可选模块提供，接受 providerId、modelId 和可选 baseUrl、compatOverride；密钥在模块进程解析，探测会实际请求供应商。
-- 以上是受信任客户端能力，不构成多租户沙箱或平台账号鉴权。
+- `providerConfig` supports engine, providerId, modelId, fastModelId, baseUrl, compatOverride, maxOutputTokens, modelOptions, supportsEffort, workspaceRoot, harnessPreset and dshProviderRoute; the last two apply only to the corresponding adapters.
+- At the top level only `overrides` may accompany it; raw launch fields cannot be mixed in. overrides allows only args, env, envRemove and cwd; args are appended, env overrides, and cwd overrides when it has a value. When an authorized root is configured, cwd is also subject to path validation.
+- The raw launch also supports `envRemove: string[]`. The order of application is engine default environment → envRemove → explicit env, so that switching providers does not inherit variables that were asked to be removed.
+- When using providerConfig, do not repeat in the engine table the `--acp` or dsh entry arguments that the adapter provides.
+- `engines/probeCapabilities` is provided by an optional module and accepts providerId, modelId and optional baseUrl and compatOverride; keys are resolved in the module process, and probing actually makes requests to the provider.
+- The above are trusted-client capabilities and do not constitute a multi-tenant sandbox or platform account authentication.
 
-#### 引擎适配声明与发现
+#### Engine adapter declaration and discovery
 
-官方适配模块读取引擎表条目的 `providerAdapter`，将供应商选择翻译为 CLI 参数与环境；Runtime 不解释具体适配器种类。CLI 仍须符合 Runtime 支持的 ACP 合同。
+The official adapter module reads the `providerAdapter` of an engine table entry and translates the provider selection into CLI arguments and environment; the Runtime does not interpret the specific adapter kind. The CLI must still conform to the ACP contract the Runtime supports.
 
 ```json
 {"company-cli":{"command":"/opt/company-agent","providerAdapter":{"kind":"environment","args":["--acp"],"env":{"COMPANY_TOKEN":"apiKey","COMPANY_MODEL":"modelId","COMPANY_URL":"baseUrl"},"envRemove":["OLD_TOKEN"]}}}
 ```
 
-- `kind` 为 `raw`、`alwith`、`dsh` 或 `environment`。前三种不接受额外字段。未声明时，标准引擎名 alwith／dsh 使用对应内置适配，其余为 raw；自定义名字可以显式选择任何适配。
-- raw 不接受 providerConfig，使用原始 launch；environment 仅映射 env 和追加固定 args，不执行 shell 插值。env 的值限定为 providerId、modelId、fastModelId、apiKey、baseUrl。
-- 请求映射 apiKey 但未配置密钥时明确报错；其他可选字段缺失时删除对应环境变量，避免继承旧值。envRemove 先应用，显式 env 后应用。
-- `engines/capabilities` 返回 `{schemaVersion:1,engines:[{engine,providerAdapter}]}`，按引擎名排序，不含凭据；这是已配置适配方式，不是模型能力探测结果。
+- `kind` is `raw`, `alwith`, `dsh` or `environment`. The first three accept no extra fields. When not declared, the standard engine names alwith / dsh use the corresponding built-in adapter and the rest are raw; a custom name can explicitly choose any adapter.
+- raw does not accept providerConfig and uses the raw launch; environment only maps env and appends fixed args, and performs no shell interpolation. The values of env are limited to providerId, modelId, fastModelId, apiKey and baseUrl.
+- If the request maps apiKey but no key is configured, it fails explicitly; when other optional fields are missing, the corresponding environment variable is removed, to avoid inheriting an old value. envRemove is applied first and explicit env after.
+- `engines/capabilities` returns `{schemaVersion:1,engines:[{engine,providerAdapter}]}`, sorted by engine name and containing no credentials; this is the configured adaptation method, not a model capability probe result.
 
-#### 可选模块的资源服务配置
+#### Resource service configuration of optional modules
 
-以下配置由独立的 `alwith-services` 模块解释，不是 Runtime 编译依赖。模块清单的 `routes` 声明对外命名空间，Runtime 只转发调用及连接标识。客户端原有方法名和服务事件格式不变。
+The configuration below is interpreted by the standalone `alwith-services` module and is not a Runtime build dependency. The `routes` in the module manifest declare the externally visible namespaces, and the Runtime only forwards calls and the connection identity. The client's existing method names and service event formats do not change.
 
-部署环境变量 `ALWITH_RUNTIME_SERVICES` 为 JSON，例如：
+The deployment environment variable `ALWITH_RUNTIME_SERVICES` is JSON, for example:
 
 ```json
 {"schemaVersion":1,"fs":{"roots":["/srv/work"]},"store":{"dataDir":"/srv/app/data","cacheDir":"/srv/app/cache"}}
 ```
 
-fs、git、shell、qa 分别接受非空绝对路径 roots；store 独立接受不同的绝对路径 dataDir／cacheDir。未列出的能力不启用；未知字段或版本报错。`services/capabilities` 返回 `{schemaVersion:1,enabled:[...]}`，能力名排序；`services/ping` 不要求启用任何资源能力。调用未启用的资源能力会明确失败。
+fs, git, shell and qa each accept non-empty absolute-path roots; store separately accepts distinct absolute-path dataDir / cacheDir. Capabilities not listed are not enabled; unknown fields or versions cause an error. `services/capabilities` returns `{schemaVersion:1,enabled:[...]}` with capability names sorted; `services/ping` does not require any resource capability to be enabled. Calling a resource capability that is not enabled fails explicitly.
 
-`ALWITH_FS_ROOTS` 仅为供应商启动 cwd 的独立路径约束，不启用资源服务；`ALWITH_SETTINGS_PATH` 仅指定供应商配置。路径限制不是 shell／Agent 的操作系统沙箱。QA 平台凭据由 Desktop 业务适配提供，不要求迁入 Runtime；服务器缺少凭据提供方时，相关 QA 操作明确失败，其他能力不受影响。
+`ALWITH_FS_ROOTS` is only an independent path constraint for the provider launch cwd and does not enable resource services; `ALWITH_SETTINGS_PATH` only specifies provider configuration. Path restrictions are not an operating-system sandbox for the shell / agent. QA platform credentials are provided by the Desktop business adapter and are not required to be moved into the Runtime; when a server lacks a credential provider, the related QA operations fail explicitly and other capabilities are unaffected.
 
-### 5.2 `send`：一行 ACP
+### 5.2 `send`: one line of ACP
 
 ```json
 {"id": 2, "method": "send", "params": {"agentId": "chat-1", "line": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":1}}"}}
 ```
 
-`line` 是一条完整的 ACP JSON-RPC 帧，Runtime 写进 agent 的 stdin。它只看两件事，其余原样透传：
+`line` is one complete ACP JSON-RPC frame, which the Runtime writes to the agent's stdin. It looks at only two things and passes everything else through as is:
 
-1. **`initialize` 只握一次手**：agent 的 `initialize` 响应会被缓存。之后再发 `initialize`（换窗口、接管、重载），Runtime 直接从缓存回放响应给你，不打扰 agent。进程换过就没有缓存，这一条照常送到 agent。
-2. **`session/resume`**：发出前 Runtime 先把 `params.sessionId` 占住，同一份会话不能被两个 agent 同时恢复。
+1. **`initialize` handshakes only once**: the agent's `initialize` response is cached. When you send `initialize` again afterwards (switching windows, taking over, reloading), the Runtime replays the response from the cache directly and does not disturb the agent. If the process has been replaced there is no cache, and this one is delivered to the agent as usual.
+2. **`session/resume`**: before sending, the Runtime claims `params.sessionId` first, so the same session cannot be resumed by two agents at once.
 
-写失败（进程已死）→ `send` 报错，并广播一条合成的 ACP 通知：
+A failed write (the process is dead) → `send` returns an error and broadcasts a synthetic ACP notification:
 
 ```json
 {"jsonrpc":"2.0","method":"_alwith/runtimeError","params":{"message":"send to agent chat-1 failed: ..."}}
 ```
 
-它走 `inbound` 事件，所以你的 ACP 客户端在同一条流上就能看到。
+It goes through the `inbound` event, so your ACP client can see it on the same stream.
 
-### 5.3 agent 的输出
+### 5.3 Agent output
 
-| 事件 | 含义 |
+| Event | Meaning |
 | --- | --- |
-| `{"type":"inbound","agentId","lines":[...]}` | agent → 应用的 ACP 帧，按 16ms 合批 |
-| `{"type":"outbound","agentId","line","sessionId"?,"sequence"?}` | 你 `send` 的那行，给别的连接看"谁发了什么"。进了会话日志的帧带 `sessionId` 与 `sequence`（见 §6.4） |
-| `{"type":"wire","agentId","outbound":bool,"lines":[...]}` | 真正上线的原文，做协议诊断用 |
-| `{"type":"stderr","agentId","line"}` | agent 的 stderr 一行 |
-| `{"type":"exit","agentId"}` | 进程退出。同一个 agentId 同时只有一个进程，所以这条没有歧义：收到它就是"我这个 agent 没了"，也是可以再 `start` 的那一刻 |
+| `{"type":"inbound","agentId","lines":[...]}` | ACP frames from agent → application, batched every 16ms |
+| `{"type":"outbound","agentId","line","sessionId"?,"sequence"?}` | The line you `send`, shown to other connections as "who sent what". Frames that entered the session journal carry `sessionId` and `sequence` (see §6.4) |
+| `{"type":"wire","agentId","outbound":bool,"lines":[...]}` | The text that actually went on the wire, for protocol diagnostics |
+| `{"type":"stderr","agentId","line"}` | One line of the agent's stderr |
+| `{"type":"exit","agentId"}` | The process exited. There is only one process per agentId at a time, so this is unambiguous: receiving it means "this agent of mine is gone", and it is also the moment you can `start` again |
 
-要自己拿 ACP SDK 说协议也可以：`send` 写一行、`inbound` 收一行，就是一条 ND-JSON 流。但没必要——见 §5.4。
+You can also speak the protocol with your own ACP SDK: `send` writes a line and `inbound` receives a line, which is just an ND-JSON stream. But there is no need; see §5.4.
 
-### 5.4 让 Runtime 替你说 ACP
+### 5.4 Let the Runtime speak ACP for you
 
-上面 `send` / `inbound` 是原始通道。日常不用碰它：Runtime 自己会说 ACP v2，你只调会话级的方法，收拆好的事件。
+`send` / `inbound` above is the raw channel. You do not need to touch it day to day: the Runtime speaks ACP v2 itself, you call only session-level methods, and you receive already-unpacked events.
 
-| 方法 | 参数 | 结果 |
+| Method | Params | Result |
 | --- | --- | --- |
-| `initialize` | `agentId, info?, capabilities?` | ACP 握手的结果。可选：只有要声明自己的客户端能力（如 elicitation）时才调，会话方法会自动以默认身份握手；握过就回缓存 |
-| `sessionNew` | `agentId, cwd, mcpServers?, meta?` | ACP `session/new` 的结果，`sessionId` 在里面。第一次调用 Runtime 会先替你握手 |
-| `sessionLoad` / `sessionResume` / `sessionFork` | `agentId, sessionId, cwd, …` | 同上 |
-| `prompt` | `agentId, sessionId, prompt: [...], meta?` | 回合结束才返回：`{stopReason, _meta}` |
-| `cancel` | `agentId, sessionId` | null（发 `session/cancel` 通知） |
-| `acpRespond` | `agentId, id, result? \| error?` | null。回答 agent 发来的请求 |
-| `acpRequest` / `acpNotify` | `agentId, method, params, id?` | 任意 ACP 方法 / 通知，Runtime 编 id、等响应。逃生口：Runtime 没包的方法从这里走。agent 回错误时响应的 `error` 就是那个 ACP 错误原样。要能撤回（`acpNotify` 发 `$/cancel_request {requestId}`）就自己传 `id`（字符串或数字，同一 agent 上未答的 id 不能重用） |
+| `initialize` | `agentId, info?, capabilities?` | The result of the ACP handshake. Optional: call it only when you want to declare your own client capabilities (such as elicitation); session methods handshake automatically with a default identity; once done, the cached result is returned |
+| `sessionNew` | `agentId, cwd, mcpServers?, meta?` | The result of ACP `session/new`, with `sessionId` inside. On the first call the Runtime handshakes for you first |
+| `sessionLoad` / `sessionResume` / `sessionFork` | `agentId, sessionId, cwd, …` | Same as above |
+| `prompt` | `agentId, sessionId, prompt: [...], meta?` | Returns only when the turn ends: `{stopReason, _meta}` |
+| `cancel` | `agentId, sessionId` | null (sends a `session/cancel` notification) |
+| `acpRespond` | `agentId, id, result? \| error?` | null. Answers a request sent by the agent |
+| `acpRequest` / `acpNotify` | `agentId, method, params, id?` | Any ACP method / notification; the Runtime picks the id and waits for the response. An escape hatch: methods the Runtime does not wrap go through here. When the agent returns an error, the response's `error` is that ACP error as is. To be able to withdraw a request (`acpNotify` sending `$/cancel_request {requestId}`), pass your own `id` (a string or number; an unanswered id on the same agent cannot be reused) |
 
-`meta` 原样放进 ACP 的 `_meta`（比如 alwith-cli 的 `_meta.alwith.maxBudgetUsd`）。
+`meta` is placed as is into ACP's `_meta` (for example alwith-cli's `_meta.alwith.maxBudgetUsd`).
 
-事件：
+Events:
 
-| 事件 | 含义 |
+| Event | Meaning |
 | --- | --- |
-| `{"type":"acpNotification","agentId","method","params","sessionId"?,"sequence"?}` | agent 发来的通知：`session/update` 的每一条内容、工具调用、状态 |
-| `{"type":"acpAgentRequest","agentId","id","method","params","sessionId"?,"sequence"?}` | agent 发来的请求：`session/request_permission`、`elicitation/create`、`fs/*`…用 `acpRespond` 带同一个 `id` 回答 |
+| `{"type":"acpNotification","agentId","method","params","sessionId"?,"sequence"?}` | A notification from the agent: every piece of content, tool call and status of `session/update` |
+| `{"type":"acpAgentRequest","agentId","id","method","params","sessionId"?,"sequence"?}` | A request from the agent: `session/request_permission`, `elicitation/create`, `fs/*`…; answer with `acpRespond` carrying the same `id` |
 
-`sessionId` / `sequence` 只在进了会话日志的帧上有（`session/update`、`session/prompt`、`session/request_permission`），和 `sessionEvents` 里同一帧的序号相同：你靠它发现漏帧并补齐，见 §6.4。
+`sessionId` / `sequence` appear only on frames that entered the session journal (`session/update`, `session/prompt`, `session/request_permission`), and equal the sequence number of the same frame in `sessionEvents`: you use it to detect missed frames and catch up, see §6.4.
 
-一轮对话的样子：
+What a turn looks like:
 
 ```json
 → {"id":1,"method":"sessionNew","params":{"agentId":"chat-1","cwd":"/work"}}
 ← {"id":1,"result":{"sessionId":"s-1"},"error":null}
-→ {"id":2,"method":"prompt","params":{"agentId":"chat-1","sessionId":"s-1","prompt":[{"type":"text","text":"你好"}]}}
-← {"type":"acpNotification","agentId":"chat-1","method":"session/update","params":{"sessionId":"s-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"你好！"}}}}
+→ {"id":2,"method":"prompt","params":{"agentId":"chat-1","sessionId":"s-1","prompt":[{"type":"text","text":"Hello"}]}}
+← {"type":"acpNotification","agentId":"chat-1","method":"session/update","params":{"sessionId":"s-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Hello!"}}}}
 ← {"type":"acpAgentRequest","agentId":"chat-1","id":7,"method":"session/request_permission","params":{"sessionId":"s-1","options":[{"optionId":"allow","kind":"allow_once"}]}}
 → {"id":3,"method":"acpRespond","params":{"agentId":"chat-1","id":7,"result":{"outcome":{"outcome":"selected","optionId":"allow"}}}}
 ← {"id":3,"result":null,"error":null}
 ← {"id":2,"result":{"stopReason":"end_turn"},"error":null}
 ```
 
-Runtime 替你发的请求，它们的响应不会出现在 `inbound` 里（你没发过它们）；`session/update` 之类的通知则两边都有。同一条连接上的请求是并发处理的：`prompt` 挂着的时候 `acpRespond` 照常过。
+Responses to requests the Runtime sends on your behalf do not appear in `inbound` (you never sent them); notifications such as `session/update` appear on both sides. Requests on the same connection are handled concurrently: while `prompt` is pending, `acpRespond` still goes through.
 
-### 5.5 停
+### 5.5 Stopping
 
-- `stop {agentId}`：杀进程。孤儿 agent 任何连接都能停。
-- `stopSession {sessionId}`：按会话反查 agent 再停（ACP 没有 `session/close`）。
+- `stop {agentId}`: kills the process. Any connection can stop an orphan agent.
+- `stopSession {sessionId}`: looks up the agent by session and then stops it (ACP has no `session/close`).
 
-### 5.6 看
+### 5.6 Looking
 
-`agents` → 每个活 agent 一条：
+`agents` → one entry per live agent:
 
 ```json
 {"agentId":"chat-1","pid":4242,"provider":"anthropic","model":"...","connection":"API","cpu":1.5,"memMb":210.3,"uptimeSecs":37}
 ```
 
-`version` → `{"version":"0.3.0","local":null}`。`ping` → `"pong"`。
+`version` → `{"version":"0.3.0","local":null}`. `ping` → `"pong"`.
 
 ---
 
-## 6. 会话
+## 6. Sessions
 
-会话 id 就是 agent 在 ACP 里报的 `sessionId`（`session/new` / `session/load` / `session/resume` / `session/fork` 的结果），Runtime 不另起名字。
+The session id is the `sessionId` the agent reports in ACP (the result of `session/new` / `session/load` / `session/resume` / `session/fork`); the Runtime does not invent its own names.
 
-### 6.1 运行态
+### 6.1 Run state
 
-Runtime 从流量里推出每个会话的状态，任何变化都广播：
+The Runtime infers each session's state from the traffic and broadcasts any change:
 
 ```json
 {"type":"runStates","sessions":[{
   "sessionId":"s-1","state":"running","reusableDraft":false,"owner":"stdio:main",
-  "cwd":"/Users/me/project","title":"修登录页","since":1757770000000,
-  "tasks":[{"id":"t1","title":"跑测试","background":true,"since":1757770001000}],
+  "cwd":"/Users/me/project","title":"Fix login page","since":1757770000000,
+  "tasks":[{"id":"t1","title":"Run tests","background":true,"since":1757770001000}],
   "listeningPorts":[3000],"executionId":null,"executionRole":null,"lastActivityAt":1757770005000
 }]}
 ```
 
-| 字段 | 含义 |
+| Field | Meaning |
 | --- | --- |
-| `state` | `running` / `requires_action` / `idle` 是 ACP v2 `state_update` 直报的值；`done` 是 Runtime 合成的"跑完了但没人看"：running → idle 时变 `done`，只有 `markRead {sessionId}` 能把它变回 `idle` |
-| `reusableDraft` | 会话建了但还没发过 prompt |
-| `owner` | 属主（历史字段名，值是属主 id） |
-| `cwd` / `title` | 来自 `session/new` 等的 `params.cwd` 与 `session_info_update` 的标题；`setSessionTitle {sessionId,title}` 可以从应用侧推标题 |
-| `tasks` | `tool_call_update` 里 `_meta.alwith.runInBackground` 为 true 的工具调用 |
-| `listeningPorts` | agent 进程树监听的 TCP 端口（每 2s 扫一次），给"它起了个 dev server"这种提示用 |
-| `executionId` / `executionRole` | 执行租约：`session/prompt` 的 `_meta.alwith.executionId` / `executionRole` 会记到会话上；`releaseExecution {executionId}` 清掉 |
+| `state` | `running` / `requires_action` / `idle` are values reported directly by ACP v2 `state_update`; `done` is synthesized by the Runtime to mean "finished but nobody has looked": it becomes `done` on running → idle, and only `markRead {sessionId}` can turn it back to `idle` |
+| `reusableDraft` | The session was created but no prompt has been sent yet |
+| `owner` | The owner (a historical field name; the value is the owner id) |
+| `cwd` / `title` | From the `params.cwd` of `session/new` and the like, and from the title in `session_info_update`; `setSessionTitle {sessionId,title}` can push a title from the application side |
+| `tasks` | Tool calls in `tool_call_update` whose `_meta.alwith.runInBackground` is true |
+| `listeningPorts` | TCP ports the agent's process tree is listening on (scanned every 2s), for hints like "it started a dev server" |
+| `executionId` / `executionRole` | Execution lease: the `_meta.alwith.executionId` / `executionRole` of `session/prompt` are recorded on the session; `releaseExecution {executionId}` clears them |
 
-`runStates` 方法拿当前全量。
+The `runStates` method returns the current full set.
 
-### 6.2 审批
+### 6.2 Approval
 
-agent 发的 `session/request_permission` 是普通 ACP 请求，走 `lines` 事件到你这里，你按 ACP 回答（`send` 一条响应）。Runtime 只记两件事：哪些权限请求还没答（`state` 因此是 `requires_action`），以及答过的不再回放。谁来审、界面长什么样，是你的应用的事。
+A `session/request_permission` sent by the agent is an ordinary ACP request; it reaches you through the `lines` event, and you answer it per ACP (`send` a response). The Runtime records only two things: which permission requests are still unanswered (which makes `state` `requires_action`), and that answered ones are not replayed. Who reviews and what the UI looks like is your application's business.
 
-### 6.3 接管
+### 6.3 Taking over
 
 ```json
 {"id": 9, "method": "attachSession", "params": {"sessionId": "s-1", "owner": "window-2"}}
 → {"id": 9, "result": {"agentId":"chat-1","engine":"alwith","provider":"anthropic","pendingAgentRequests":[{"id":7,"method":"session/request_permission","params":{...}}]}, "error": null}
 ```
 
-- 会话不在任何活 agent 上 → `result` 为 null。
-- 成功后这条连接（或子属主）成为该 agent 的属主；`pendingAgentRequests` 是 agent 还没得到回答的请求，接管方把它们当作刚收到的 `acpAgentRequest` 事件处理，用 `acpRespond` 带同一个 `id` 回答。
-- `release {sessionId}`：放弃属主，agent 改挂无主。
-- `agentForSession {sessionId}` → agentId 或 null。
+- The session is not on any live agent → `result` is null.
+- On success this connection (or sub-owner) becomes the agent's owner; `pendingAgentRequests` are requests the agent has not yet received an answer to, and the taker-over treats them as `acpAgentRequest` events just received, answering with `acpRespond` carrying the same `id`.
+- `release {sessionId}`: gives up ownership, and the agent becomes ownerless.
+- `agentForSession {sessionId}` → agentId or null.
 
-### 6.4 历史
+### 6.4 History
 
-每个会话的 ACP 帧都记进日志（默认每会话 16MB，超了丢最早的），按 `sequence` 单调编号：
+Every session's ACP frames are recorded in the journal (16MB per session by default; when exceeded the earliest are dropped), numbered monotonically by `sequence`:
 
-- `sessionEvents {sessionId, afterSequence?, limit?}` → `[{"sequence":12,"recordedAt":1757770000000,"direction":"in"|"out","line":"{...}"}]`，一页最多 2000 条，晚加入的端按 `afterSequence` 翻页补齐。已答过的 `session/request_permission` 不会再给。
-- `sessionReplay {sessionId}` → 全部帧原文（字符串数组），一次拿全。
-- `sessionLifecycle {sessionId}` → 只要生命周期帧：`session/prompt`、`session/request_permission`、`tool_call_update`，不含 AI 正文，agent 退出后仍可查。
+- `sessionEvents {sessionId, afterSequence?, limit?}` → `[{"sequence":12,"recordedAt":1757770000000,"direction":"in"|"out","line":"{...}"}]`, at most 2000 entries per page; a late-joining side pages through with `afterSequence` to catch up. Answered `session/request_permission` frames are not returned again.
+- `sessionReplay {sessionId}` → the raw text of all frames (an array of strings), fetched all at once.
+- `sessionLifecycle {sessionId}` → lifecycle frames only: `session/prompt`, `session/request_permission`, `tool_call_update`, without AI body text, still queryable after the agent exits.
 
-**漏帧与补齐。** 事件是尽力投递：stdio 入口的事件队列（8192 条）满了会丢事件，腾出后先补一条 `{"type":"lagged","dropped":n}`；ws 入口不丢，直接断开慢连接（重连后同样要补）。补齐靠序号：进了日志的活事件带 `sessionId` 与 `sequence`，与 `sessionEvents` 里同一帧的序号相同，所以客户端要做的只有一件事——
+**Missed frames and catching up.** Event delivery is best-effort: when the stdio entry's event queue (8192 entries) is full it drops events, and once room frees up it first sends `{"type":"lagged","dropped":n}`; the ws entry does not drop but disconnects the slow connection directly (which also needs catching up after reconnecting). Catching up relies on sequence numbers: live events that entered the journal carry `sessionId` and `sequence`, equal to the sequence number of the same frame in `sessionEvents`, so the client has only one thing to do:
 
-- 每条会话记住最后见到的 `sequence`；来了一帧序号跳过去了（`sequence > last + 1`），或者收到 `lagged`、或者重连之后，就 `sessionEvents {sessionId, afterSequence: last}` 把中间的帧拿回来，按序交给应用，再继续投活的那条。序号不大于 `last` 的是重复，丢掉；序号从 0 重来是引擎重放了历史（带 `replayFrom` 的 resume 会清日志），照单全收。
-- 日志按 16MB 只留后半段：补齐时第一帧的序号还是跳过了 `last + 1`，就是补不回来了——这时应用该被明确告知（重载这条会话），不能装作连续。
-- 第一次见到某条会话时不补：晚加入的端本来就要自己 `sessionEvents` 拿历史，那是接管流程的事。
+- For each session, remember the last `sequence` seen; when a frame arrives whose number jumped ahead (`sequence > last + 1`), or a `lagged` is received, or after reconnecting, call `sessionEvents {sessionId, afterSequence: last}` to fetch the frames in between, hand them to the application in order, and then continue with the live stream. A number not greater than `last` is a duplicate and is dropped; a number restarting from 0 means the engine replayed history (a resume with `replayFrom` clears the journal), so accept it as is.
+- The journal keeps only its latter half beyond 16MB: if while catching up the first frame's number still skips past `last + 1`, it cannot be recovered. At that point the application should be told explicitly (reload that session) and must not pretend it is contiguous.
+- Do not catch up when first seeing a session: a late-joining side has to fetch history with `sessionEvents` itself anyway, which is part of the takeover flow.
 
-`@alwith/api` 的两个客户端（TS 的 `FrameRuntimeClient`、Rust 的 `RuntimeClient`）都做了这件事：应用只会按序、不重复地收到事件，补不回来的会得到 `gap`（TS `onGap`，Rust `ClientEvent::Gap {sessionId, from, to}`）。自己写客户端就照上面三条做。
+Both `@alwith/api` clients (TS `FrameRuntimeClient`, Rust `RuntimeClient`) do this: the application only receives events in order and without duplicates, and gets a `gap` for what cannot be recovered (TS `onGap`, Rust `ClientEvent::Gap {sessionId, from, to}`). If you write your own client, follow the three rules above.
 
 ---
 
-## 7. 模块
+## 7. Modules
 
-模块是包：一个目录，里面一份 `alwith-module.json` 加一个可执行入口。Runtime 启动时扫 `ALWITH_MODULES_DIR`（通常是应用的 `node_modules`）下的 `*/alwith-module.json` 和 `@*/*/alwith-module.json`，每个 spawn 成子进程。你的应用在 `package.json` 里依赖模块包，就像依赖任何 npm 包。
+A module is a package: a directory containing an `alwith-module.json` and an executable entry. At startup the Runtime scans `ALWITH_MODULES_DIR` (usually the application's `node_modules`) for `*/alwith-module.json` and `@*/*/alwith-module.json`, and spawns each as a child process. Your application depends on module packages in `package.json`, just like any npm package.
 
-### 7.1 清单
+### 7.1 Manifest
 
 ```json
 {
@@ -380,41 +380,41 @@ agent 发的 `session/request_permission` 是普通 ACP 请求，走 `lines` 事
 }
 ```
 
-`entry` 按本机 target triple 取，没有就取 `default`，路径相对模块目录。`runtime` 是最低 Runtime 版本(`>=X.Y.Z`),不满足的模块不加载;`persistent`、`capabilities` 目前只记录不校验。
+`entry` is chosen by the local target triple, falling back to `default`, with paths relative to the module directory. `runtime` is the minimum Runtime version (`>=X.Y.Z`); modules that do not satisfy it are not loaded; `persistent` and `capabilities` are currently only recorded, not validated.
 
-### 7.2 模块进程说什么
+### 7.2 What a module process says
 
-模块在自己的 stdin/stdout 上说和应用一模一样的帧，三种：
+On its own stdin/stdout a module speaks exactly the same frames as an application, three kinds:
 
-1. **模块 → Runtime 请求** `{id, method, params}`：模块就是一个客户端，能调 Runtime 的任何方法（`start` 自己的 agent、看 `runStates`…），属主是 `module:<name>`。Runtime 回 `{id, result|error}`。
-2. **Runtime → 模块请求**：应用调 `modules/<name>/<method>`，Runtime 转给模块 `{id, method: "<method>", params}`（前缀已剥掉），模块回 `{id, result|error}`，`error` 同样是 `{code, message, data}`，原样转回应用。两个方向各自编 id。
-3. **事件** `{type, ...}`：Runtime 的全部事件原样推给模块；模块发出的事件被包成 `{"type":"module","module":"<name>","event":{...}}` 广播给所有应用连接。
+1. **Module → Runtime request** `{id, method, params}`: a module is a client and can call any Runtime method (`start` its own agent, look at `runStates`…), with owner `module:<name>`. The Runtime replies `{id, result|error}`.
+2. **Runtime → module request**: the application calls `modules/<name>/<method>`, and the Runtime forwards `{id, method: "<method>", params}` to the module (prefix stripped); the module replies `{id, result|error}`, where `error` is likewise `{code, message, data}` and is passed back to the application as is. Each direction picks its own ids.
+3. **Event** `{type, ...}`: all of the Runtime's events are pushed to the module as is; events the module emits are wrapped as `{"type":"module","module":"<name>","event":{...}}` and broadcast to all application connections.
 
-进程环境：cwd 是模块目录，`ALWITH_MODULE_NAME` 是模块名，stderr 直通 Runtime 的 stderr。模块的 stdin 到 EOF（Runtime 退出）就该退出。
+Process environment: cwd is the module directory, `ALWITH_MODULE_NAME` is the module name, and stderr goes straight through to the Runtime's stderr. A module should exit when its stdin reaches EOF (the Runtime exited).
 
-用本仓的客户端写模块：Rust 用 `RuntimeClient::over_with_handler(stdin, stdout, handler)`，TS 用 `@alwith/api/module` 的 `ModuleRuntimeClient({input: process.stdin, output: process.stdout, handle})`；`handle(method, params, signal)` 收请求，`emit` 发事件，其余方法照常调 Runtime。两个方向的 ID 独立，处理请求时仍读取响应。EOF 会 abort 所有 handler 的 signal、拒绝在途请求并丢弃迟到回复；业务处理器必须遵守 signal。`ProcessRuntimeClient` 用于应用启动一个新 Runtime，不是模块端点。模块 stdout 只写协议帧，日志写 stderr。
+To write a module with this repo's clients: Rust uses `RuntimeClient::over_with_handler(stdin, stdout, handler)`, and TS uses `@alwith/api/module`'s `ModuleRuntimeClient({input: process.stdin, output: process.stdout, handle})`; `handle(method, params, signal)` receives requests, `emit` sends events, and other methods call the Runtime as usual. The IDs of the two directions are independent, and responses are still read while a request is being handled. EOF aborts the signal of every handler, rejects in-flight requests and discards late replies; business handlers must respect the signal. `ProcessRuntimeClient` is for an application launching a new Runtime and is not a module endpoint. A module's stdout carries only protocol frames; logs go to stderr.
 
-### 7.3 应用怎么用模块
+### 7.3 How an application uses modules
 
 - `modules` → `[{"name","version","persistent","capabilities","alive"}]`
-- `modules/<name>/<method>` 任意参数，模块答什么就是什么。
-- 模块事件：`{"type":"module","module":"<name>","event":{"type":"...", ...}}`。TS 客户端有 `onModuleEvent(name, handler)` 拆掉这层信封。
+- `modules/<name>/<method>` with arbitrary params; whatever the module answers is the result.
+- Module events: `{"type":"module","module":"<name>","event":{"type":"...", ...}}`. The TS client has `onModuleEvent(name, handler)` to unwrap this envelope.
 
 ---
 
-## 8. 最小 WorkBuddy
+## 8. A minimal WorkBuddy
 
-TypeScript，浏览器或 Node 都行：
+TypeScript, works in a browser or Node:
 
 ```ts
 import { WebSocketRuntimeClient } from "@alwith/api"
 
 const runtime = new WebSocketRuntimeClient("ws://127.0.0.1:4321", token)
 
-// 1. 起一个 agent
+// 1. Start an agent
 await runtime.start("chat-1", { engine: "alwith", cwd })
 
-// 2. 聊:Runtime 替你说 ACP。内容与工具调用经 onAcpNotification 到,审批经 onAcpAgentRequest 问你
+// 2. Chat: the Runtime speaks ACP for you. Content and tool calls arrive via onAcpNotification, and approvals ask you via onAcpAgentRequest
 runtime.onAcpNotification(({ method, params }) => {
   if (method === "session/update") render(params)
 })
@@ -423,14 +423,14 @@ runtime.onAcpAgentRequest(async ({ agentId, id, method, params }) => {
     await runtime.acpRespond(agentId, id, { outcome: { outcome: "selected", optionId: await askUser(params) } })
 })
 const { sessionId } = await runtime.sessionNew("chat-1", cwd)
-const { stopReason } = await runtime.prompt("chat-1", sessionId, [{ type: "text", text: "你好" }])
+const { stopReason } = await runtime.prompt("chat-1", sessionId, [{ type: "text", text: "Hello" }])
 
-// 3. 运行态与历史
+// 3. Run state and history
 runtime.onRunStates(states => renderSidebar(states))
 const history = await runtime.sessionEvents(sessionId)
 ```
 
-Rust（比如做一个连接器或模块）：
+Rust (for example to build a connector or a module):
 
 ```rust
 use alwith_api::{ClientEvent, RuntimeClient, RuntimeEvent};
@@ -442,56 +442,56 @@ client.start("chat-1", serde_json::json!({ "engine": "alwith", "cwd": "/work" })
 client.send("chat-1", r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}"#, None).await?;
 let mut events = client.events();
 while let Ok(event) = events.recv().await {
-    if let ClientEvent::Runtime(RuntimeEvent::Lines { agent_id, lines }) = event { /* ACP 帧 */ }
+    if let ClientEvent::Runtime(RuntimeEvent::Lines { agent_id, lines }) = event { /* ACP frames */ }
 }
 ```
 
-不用客户端也行：任何能开 WebSocket、按行读写 JSON 的东西都能直接说这个协议。
+You can also skip the client: anything that can open a WebSocket and read and write JSON line by line can speak this protocol directly.
 
 ---
 
-## 9. 方法总表
+## 9. Method reference
 
-| 方法 | 参数 | 结果 | 谁能调 |
+| Method | Params | Result | Who can call |
 | --- | --- | --- | --- |
-| `start` | `agentId, provider, owner?` | null（同名进程还活着则报错） | 任何连接 |
-| `send` | `agentId, line, owner?` | null | 属主 |
-| `stop` | `agentId, owner?` | null | 属主，或 agent 是孤儿 |
-| `attachSession` | `sessionId, owner?` | AttachInfo 或 null | 任何连接（成功即成为属主） |
-| `releaseSession` | `sessionId, owner?` | null | 属主 |
-| `stopSession` | `sessionId, owner?` | null | 属主 |
-| `detachOwner` | `owner` | null | 任何连接（只影响自己的子属主） |
-| `releaseExecution` | `executionId` | bool | 任何连接 |
-| `agentForSession` | `sessionId` | agentId 或 null | 任何连接 |
-| `markRead` | `sessionId` | null | 任何连接 |
-| `setSessionTitle` | `sessionId, title` | null | 任何连接 |
-| `sessionLifecycle` | `sessionId` | 帧数组 | 任何连接 |
-| `sessionEvents` | `sessionId, afterSequence?, limit?` | 帧数组 | 任何连接 |
-| `sessionReplay` | `sessionId` | 字符串数组 | 任何连接 |
-| `runStates` | — | 会话运行态数组 | 任何连接 |
-| `agents` | — | agent 数组 | 任何连接 |
-| `version` | — | `{version, local}` | 任何连接 |
-| `ping` | — | `"pong"` | 任何连接 |
-| `initialize` | `agentId, info?, capabilities?, owner?` | ACP 握手结果 | 属主 |
-| `sessionNew` / `sessionLoad` / `sessionResume` / `sessionFork` | `agentId, cwd, …, meta?, owner?` | ACP 结果 | 属主 |
-| `prompt` | `agentId, sessionId, prompt, meta?, owner?` | `{stopReason, _meta}` | 属主 |
-| `cancel` | `agentId, sessionId, owner?` | null | 属主 |
-| `acpRequest` / `acpNotify` / `acpRespond` | `agentId, method \| id, params \| result, owner?` | ACP 结果 / null | 属主 |
-| `setSlowMode` | `delayMs` | null | 任何连接（开发用） |
-| `shutdown` | — | null，随后 Runtime 收尾退出 | 只有 stdio 连接（ws 上是未知方法：浏览器不能关掉共享的 Runtime） |
-| `modules` | — | 模块状态数组 | 任何连接 |
-| `modules/<name>/<method>` | 模块定 | 模块定 | 任何连接 |
+| `start` | `agentId, provider, owner?` | null (errors if a process with the same name is still alive) | Any connection |
+| `send` | `agentId, line, owner?` | null | Owner |
+| `stop` | `agentId, owner?` | null | Owner, or the agent is an orphan |
+| `attachSession` | `sessionId, owner?` | AttachInfo or null | Any connection (becomes owner on success) |
+| `releaseSession` | `sessionId, owner?` | null | Owner |
+| `stopSession` | `sessionId, owner?` | null | Owner |
+| `detachOwner` | `owner` | null | Any connection (affects only its own sub-owners) |
+| `releaseExecution` | `executionId` | bool | Any connection |
+| `agentForSession` | `sessionId` | agentId or null | Any connection |
+| `markRead` | `sessionId` | null | Any connection |
+| `setSessionTitle` | `sessionId, title` | null | Any connection |
+| `sessionLifecycle` | `sessionId` | Array of frames | Any connection |
+| `sessionEvents` | `sessionId, afterSequence?, limit?` | Array of frames | Any connection |
+| `sessionReplay` | `sessionId` | Array of strings | Any connection |
+| `runStates` | — | Array of session run states | Any connection |
+| `agents` | — | Array of agents | Any connection |
+| `version` | — | `{version, local}` | Any connection |
+| `ping` | — | `"pong"` | Any connection |
+| `initialize` | `agentId, info?, capabilities?, owner?` | ACP handshake result | Owner |
+| `sessionNew` / `sessionLoad` / `sessionResume` / `sessionFork` | `agentId, cwd, …, meta?, owner?` | ACP result | Owner |
+| `prompt` | `agentId, sessionId, prompt, meta?, owner?` | `{stopReason, _meta}` | Owner |
+| `cancel` | `agentId, sessionId, owner?` | null | Owner |
+| `acpRequest` / `acpNotify` / `acpRespond` | `agentId, method \| id, params \| result, owner?` | ACP result / null | Owner |
+| `setSlowMode` | `delayMs` | null | Any connection (for development) |
+| `shutdown` | — | null, after which the Runtime wraps up and exits | stdio connections only (an unknown method on ws: a browser cannot shut down the shared Runtime) |
+| `modules` | — | Array of module states | Any connection |
+| `modules/<name>/<method>` | Defined by the module | Defined by the module | Any connection |
 
-事件：`inbound`、`outbound`、`wire`、`stderr`、`exit`、`runStates`、`acpNotification`、`acpAgentRequest`、`lagged`（stdio）、`module`。
+Events: `inbound`, `outbound`, `wire`, `stderr`, `exit`, `runStates`, `acpNotification`, `acpAgentRequest`, `lagged` (stdio), `module`.
 
-## 10. 版本
+## 10. Versioning
 
-- 帧协议名 `alwith-runtime-v1`。加字段、加方法不改名；改语义才会有 v2。
-- `version.version` 与 `alwith-runtime --version` 是同一个数，本仓的包版本与它同步发布。
-- 模块清单的 `runtime` 字段写它需要的最低 Runtime 版本。
+- The frame protocol name is `alwith-runtime-v1`. Adding fields or methods does not rename it; only a change in semantics would produce v2.
+- `version.version` and `alwith-runtime --version` are the same number, and this repo's package versions are released in sync with it.
+- The `runtime` field of a module manifest states the minimum Runtime version it needs.
 
-## 11. 不在这里的东西
+## 11. What is not here
 
-- **身份与登录**：Runtime 不认用户。谁在用、要不要登录，是应用的事。
-- **审批的记录与策略**：Runtime 只知道哪些权限请求没答；谁答的、为什么答，应用自己记。
-- **存储**：会话日志之外的一切（设置、文件、数据库）都不经 Runtime。
+- **Identity and login**: the Runtime does not know users. Who is using it and whether login is needed is the application's business.
+- **Approval records and policy**: the Runtime only knows which permission requests are unanswered; who answered and why is recorded by the application itself.
+- **Storage**: everything other than the session journal (settings, files, databases) does not pass through the Runtime.

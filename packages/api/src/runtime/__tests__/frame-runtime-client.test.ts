@@ -29,7 +29,7 @@ class MemoryPort extends FrameRuntimeClient<{ engine: string }> {
 }
 
 describe("FrameRuntimeClient", () => {
-  test("请求按 id 配对响应，params 缺省不发送", async () => {
+  test("requests pair with responses by id, and omitted params are not sent", async () => {
     const port = new MemoryPort()
     const pong = port.ping()
     const events = port.sessionEvents("s1", 7, 10)
@@ -45,7 +45,7 @@ describe("FrameRuntimeClient", () => {
     expect(port.connects).toBe(2)
   })
 
-  test("agentForSession 是只读查询:一帧问、一帧答,不认领", async () => {
+  test("agentForSession is a read-only query: one frame asks, one answers, nothing is claimed", async () => {
     const port = new MemoryPort()
     const lookup = port.agentForSession("s1")
     await flush()
@@ -54,7 +54,7 @@ describe("FrameRuntimeClient", () => {
     expect(await lookup).toBe("agent-1")
   })
 
-  test("错误响应变成 RuntimeRequestError，写失败也一样", async () => {
+  test("error responses become RuntimeRequestError, and so do write failures", async () => {
     const port = new MemoryPort()
     const denied = port.send("a", "x")
     await flush()
@@ -64,7 +64,7 @@ describe("FrameRuntimeClient", () => {
     await expect(port.ping()).rejects.toMatchObject({ code: RuntimeErrorCode.connectionLost, message: "ping: pipe closed" })
   })
 
-  test("事件按 type 分发，传输断开拒绝全部在飞请求", async () => {
+  test("events dispatch by type, and a transport disconnect rejects every in-flight request", async () => {
     const port = new MemoryPort()
     const lines: unknown[] = []
     const states: unknown[] = []
@@ -117,7 +117,7 @@ describe("FrameRuntimeClient", () => {
   })
 })
 
-describe("按序、不重复:漏帧从日志补齐", () => {
+describe("in order, no duplicates: missed frames are refilled from the journal", () => {
   const update = (sequence: number, text = `t${sequence}`) => ({
     type: "acpNotification",
     agentId: "a",
@@ -138,7 +138,7 @@ describe("按序、不重复:漏帧从日志补齐", () => {
   })
   const sequencesOf = (events: Array<{ sequence?: number }>) => events.map(event => event.sequence)
 
-  test("序号跳了:先向 Runtime 要中间那段,补完再投后面的", async () => {
+  test("a sequence gap: asks the Runtime for the missing range first, then delivers what follows", async () => {
     const port = new MemoryPort()
     const seen: Array<{ sequence?: number }> = []
     await port.onAcpNotification(n => seen.push(n))
@@ -156,7 +156,7 @@ describe("按序、不重复:漏帧从日志补齐", () => {
     expect(sequencesOf(seen)).toEqual([0, 1, 2, 3, 4])
   })
 
-  test("补齐期间到的活帧排在后面,不插队", async () => {
+  test("live frames arriving during a refill queue behind it instead of jumping ahead", async () => {
     const port = new MemoryPort()
     const seen: Array<{ sequence?: number }> = []
     await port.onAcpNotification(n => seen.push(n))
@@ -170,7 +170,7 @@ describe("按序、不重复:漏帧从日志补齐", () => {
     expect(sequencesOf(seen)).toEqual([0, 1, 2, 3])
   })
 
-  test("日志里也没有了:报 gap,不装作连续", async () => {
+  test("gone from the journal too: reports a gap instead of pretending continuity", async () => {
     const port = new MemoryPort()
     const seen: Array<{ sequence?: number }> = []
     const gaps: unknown[] = []
@@ -186,7 +186,7 @@ describe("按序、不重复:漏帧从日志补齐", () => {
     expect(sequencesOf(seen)).toEqual([0, 4, 5])
   })
 
-  test("lagged:Runtime 说丢了,跟着的每条会话都从最后见到的序号补", async () => {
+  test("lagged: when the Runtime reports loss, every followed session refills from its last seen sequence", async () => {
     const port = new MemoryPort()
     const seen: Array<{ sequence?: number }> = []
     await port.onAcpNotification(n => seen.push(n))
@@ -201,7 +201,7 @@ describe("按序、不重复:漏帧从日志补齐", () => {
     expect(sequencesOf(seen)).toEqual([0, 1, 2, 3])
   })
 
-  test("重复的丢掉;序号从 0 重来是引擎重放了历史,照收", () => {
+  test("duplicates are dropped; a sequence restarting at 0 means the engine replayed history and is accepted", () => {
     const port = new MemoryPort()
     const seen: Array<{ sequence?: number }> = []
     void port.onAcpNotification(n => seen.push(n))
@@ -213,7 +213,7 @@ describe("按序、不重复:漏帧从日志补齐", () => {
     expect(sequencesOf(seen)).toEqual([0, 1, 0, 1])
   })
 
-  test("日志里的 out 帧与请求帧按原样投给对应的订阅", async () => {
+  test("out frames and request frames from the journal are delivered as is to their subscriptions", async () => {
     const port = new MemoryPort()
     const outbound: unknown[] = []
     const requests: unknown[] = []

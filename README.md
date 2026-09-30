@@ -1,44 +1,44 @@
 # alwith-api
 
-ALwith 的应用侧:做自己的 WorkBuddy 时,应用和模块靠这里接上 Runtime。Runtime 本体按二进制发布,闭源;这里是它对外的那一面。
+The application side of ALwith: when you build your own WorkBuddy, your app and modules connect to the Runtime through this. The Runtime itself ships as a closed-source binary; this is its public face.
 
-| 包 | 语言 | 用途 |
+| Package | Language | Purpose |
 | --- | --- | --- |
-| `alwith-api` | Rust | 协议类型(总是有)+ 客户端(feature `client`,默认开):spawn 一个 Runtime 走 stdio,或接任意字节流(模块进程就是这样接 Runtime 的)。只要类型时 `default-features = false` |
-| `@alwith/api` | TypeScript | 同一协议的 TS 面,一个包三样:`./runtime` 连 Runtime、`./agent` 持有 agent、`./session` 会话状态;传输在 `./tauri` 与 `./node` |
+| `alwith-api` | Rust | Protocol types (always present) + a client (feature `client`, on by default): spawn a Runtime over stdio, or attach to any byte stream (this is how module processes connect to the Runtime). Use `default-features = false` if you only need the types |
+| `@alwith/api` | TypeScript | The TS surface of the same protocol, three things in one package: `./runtime` connects to the Runtime, `./agent` owns agents, `./session` holds session state; transports live in `./tauri` and `./node` |
 
-协议本身见 [PROTOCOL.md](PROTOCOL.md):只拿 Runtime 二进制、这份协议和这里的包,就能做自己的 WorkBuddy。Rust 是一个 cargo workspace(`crates/api`),TS 在 `packages/api`。
+The protocol itself is in [PROTOCOL.md](PROTOCOL.md): the Runtime binary, this protocol and the packages here are all you need to build your own WorkBuddy. Rust is a cargo workspace (`crates/api`); TS is in `packages/api`.
 
-Runtime 独立构建，不依赖本仓。Rust 协议类型由 Runtime 二进制导出，更新使用
-`bun scripts/sync-runtime-protocol.ts /path/to/alwith-runtime`；CI 校验时加 `--check`。
-客户端跨进程测试：设置 `ALWITH_RUNTIME_TEST_BINARY` 后运行
-`cargo test -p alwith-api --features runtime-contract-tests`，不链接 Runtime 私有 Rust crate。
+The Runtime is built independently and does not depend on this repo. The Rust protocol types are exported by the Runtime binary; update them with
+`bun scripts/sync-runtime-protocol.ts /path/to/alwith-runtime` (add `--check` for CI verification).
+Cross-process client tests: set `ALWITH_RUNTIME_TEST_BINARY`, then run
+`cargo test -p alwith-api --features runtime-contract-tests`. This does not link any private Runtime Rust crate.
 
-## npm 分发 Rust SDK
+## Distributing the Rust SDK via npm
 
-从 `@alwith/api` 0.1.4 起，npm 包同时携带 JS 产物和 `rust/` crate。Rust 源码唯一维护在 `crates/api`；打包时自动复制源码与契约测试、展开 workspace 元数据，并附上包内许可证。生成目录不提交。
+Since `@alwith/api` 0.1.4, the npm package carries both the JS output and a `rust/` crate. The Rust source is maintained only in `crates/api`; packaging copies the source and contract tests, expands workspace metadata, and adds the in-package license. The generated directory is not committed.
 
-先安装 npm 依赖，再让 Cargo 使用相对于消费端 Cargo.toml 的路径：
+Install the npm dependency first, then point Cargo at a path relative to the consumer's Cargo.toml:
 
 ```toml
 [dependencies]
 alwith-api = { path = "node_modules/@alwith/api/rust", features = ["client"] }
 ```
 
-若 Cargo.toml 在 `src-tauri/`，路径改为 `../node_modules/@alwith/api/rust`。无需克隆本仓或通过 Git 获取 crate；第三方 Rust 依赖仍由 Cargo 解析。npm 版本由消费者的 Bun 锁文件固定，Rust crate 保持自身版本。
+If Cargo.toml is in `src-tauri/`, change the path to `../node_modules/@alwith/api/rust`. There is no need to clone this repo or fetch the crate through Git; third-party Rust dependencies are still resolved by Cargo. The npm version is pinned by the consumer's Bun lockfile, and the Rust crate keeps its own version.
 
-验证打包内容：`bun test scripts/__tests__`。Rust 编译与 Runtime 契约测试另行执行。
+Verify the package contents with `bun test scripts/__tests__`. Rust compilation and the Runtime contract tests run separately.
 
-## 发布 `@alwith/api`
+## Publishing `@alwith/api`
 
-推一个 `v<版本>` 的 tag,[publish.yml](.github/workflows/publish.yml) 跑测试、构建 dist、发到 npm。本地不用 `npm login`:走 npm 的 trusted publishing(OIDC),没有 token。不带 provenance:那只支持公开源码仓,仓库公开那天再加。
+Push a `v<version>` tag and [publish.yml](.github/workflows/publish.yml) runs the tests, builds dist and publishes to npm. No local `npm login` is needed: it uses npm trusted publishing (OIDC), with no token. It does not attach provenance, which only supports public source repos; add it the day the repo goes public.
 
-一次性配置(npmjs.com,包 `@alwith/api` → Settings → Trusted Publisher → GitHub Actions):Organization `ALwith-ai`、Repository `alwith-api`、Workflow filename `publish.yml`、Environment 留空。配完把 Publishing access 设成「Require two-factor authentication and disallow tokens」,trusted publisher 不受这条限制,反而把失效 token 那条路彻底关掉。
+One-time setup (npmjs.com, package `@alwith/api` → Settings → Trusted Publisher → GitHub Actions): Organization `ALwith-ai`, Repository `alwith-api`, Workflow filename `publish.yml`, Environment left empty. Afterwards set Publishing access to "Require two-factor authentication and disallow tokens"; the trusted publisher is not affected by this setting, and it fully closes off the stale-token route.
 
-发版:改 `packages/api/package.json` 的 `version`,提交,然后
+To release: change `version` in `packages/api/package.json`, commit, then
 
 ```sh
 git tag v0.1.1 && git push origin v0.1.1
 ```
 
-tag 和 `version` 不一致 workflow 直接失败。
+The workflow fails outright if the tag and `version` disagree.

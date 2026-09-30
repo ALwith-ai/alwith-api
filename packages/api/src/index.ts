@@ -1,5 +1,5 @@
-// `@alwith/api`:一个包,三样东西 —— 连 Runtime(`./runtime`)、持有 agent(`./agent`)、
-// 会话状态(`./session`)。绑定环境的传输在 `@alwith/api/tauri` 与 `@alwith/api/node`。
+// `@alwith/api`: one package, three things: connect to the Runtime (`./runtime`), hold agents (`./agent`),
+// and session state (`./session`). Environment-bound transports live in `@alwith/api/tauri` and `@alwith/api/node`.
 export * from "./runtime"
 export * from "./agent"
 export * from "./session"

@@ -1,14 +1,14 @@
-// 这个应用手里的 agent:Runtime 里的一个进程,由这里起(start)或接管(attachSession),握手一次,
-// 收它的通知与请求,向它发请求,直到它退出或被放手。
+// The agents this app holds: each is a process inside the Runtime, started here (start) or taken over (attachSession),
+// handshaken once; we receive its notifications and requests, send it requests, until it exits or is let go.
 //
-// 每个 WorkBuddy 都要做、做错就出事故的几件事收在这里:
-// - 起进程前先问 Runtime 有没有活的(接管而不是再起一个);
-// - 换芯 = stop → 等 exit → start(同一个 agentId 同时只能有一个进程,Runtime 拒绝并发);
-// - 进程退出 / 被停 / 被放手时,还在等答的请求立刻失败,不让调用方的 await 永挂;
-// - stop 要等到 exit 事件,否则切芯的 resume 会重新接到旧进程。
+// Things every WorkBuddy must do and that cause incidents when done wrong live here:
+// - before spawning, ask the Runtime whether one is already alive (take over instead of starting another);
+// - swapping the engine = stop -> wait for exit -> start (one process per agentId at a time; the Runtime rejects concurrent starts);
+// - when the process exits / is stopped / is let go, requests still awaiting an answer fail immediately, so the caller's await never hangs;
+// - stop must wait for the exit event, otherwise the engine-switch resume would reattach to the old process.
 import { type AgentRequest, REQUEST_CANCELLED } from "./requests"
 
-/** `attachSession` 交回来的最少三样:哪个 agent、哪颗芯、还没答的请求。端口自己的类型可以更多(provider…)。 */
+/** The minimum `attachSession` hands back: which agent, which engine, and the requests still unanswered. A port's own type may carry more (provider, ...). */
 export interface AttachInfo {
   agentId: string
   engine: string
@@ -16,8 +16,8 @@ export interface AttachInfo {
 }
 
 /**
- * `Agents` 对端口的全部要求 —— `RuntimeClient` 的一个子集,应用自己的宿主端口(如桌面的 Tauri 中转)
- * 只要有这几条就能用。
+ * The full set of requirements `Agents` places on a port: a subset of `RuntimeClient`. An app's own host port (such as the desktop Tauri relay)
+ * only needs to provide these.
  */
 export interface AgentPort<Launch, Info extends AttachInfo = AttachInfo> {
   start(agentId: string, launch: Launch): Promise<void>
@@ -34,12 +34,12 @@ export interface AgentPort<Launch, Info extends AttachInfo = AttachInfo> {
 }
 
 export type Handshake = {
-  /** ACP v2 必填 name 与 version;title 之类给人看的照协议随意加。 */
+  /** ACP v2 requires name and version; add human-facing fields such as title freely, per the protocol. */
   info: { name: string; version: string; [key: string]: unknown }
   capabilities?: Record<string, unknown>
 }
 
-/** 请求还没等到答复,agent 就没了(退出、被停、被放手)。 */
+/** The agent went away (exited, was stopped, or was let go) before the request got a reply. */
 export class AgentGoneError extends Error {
   readonly agentId: string
   constructor(agentId: string, reason: string) {
@@ -49,7 +49,7 @@ export class AgentGoneError extends Error {
   }
 }
 
-/** 带 signal 的请求被调用方取消:已按协议发了 `$/cancel_request`,本地立即失败。 */
+/** A request carrying a signal was cancelled by the caller: `$/cancel_request` has been sent per the protocol, and it fails locally at once. */
 export class RequestCancelledError extends Error {
   readonly code = REQUEST_CANCELLED
   constructor() {
@@ -59,15 +59,15 @@ export class RequestCancelledError extends Error {
 }
 
 /**
- * 一个活的 agent。由 `Agents.start` / `Agents.attach` 建,不直接 new。
+ * A live agent. Created by `Agents.start` / `Agents.attach`; never construct it directly.
  */
 export class Agent {
   readonly agentId: string
-  /** Runtime 报的芯(接管时)或起它时给的;应用自己认。 */
+  /** The engine reported by the Runtime (on takeover) or supplied at start; the app interprets it. */
   readonly engine: string | null
-  /** initialize 的结果:agent 的身份、能力、登录方式。 */
+  /** Result of initialize: the agent's identity, capabilities, and login methods. */
   readonly initialized: unknown
-  /** 进程没了(exit 事件)之后 resolve;放手(detach)不算。 */
+  /** Resolves once the process is gone (exit event); detach does not count. */
   readonly exited: Promise<void>
 
   private _alive = true
@@ -99,14 +99,14 @@ export class Agent {
     return this._alive
   }
 
-  /** 还在等 agent 答复的请求数。停 / 放手前看一眼:大于零说明有一轮工作被硬生生打断。 */
+  /** Number of requests still awaiting an agent reply. Check before stop / detach: above zero means a round of work is being cut off. */
   get inflightCount(): number {
     return this.inflight.size
   }
 
   /**
-   * Runtime 报了这个 agent 的故障(`_alwith/runtimeError` 之类):它的答复不会再来了,在飞的立刻失败。
-   * agent 本身仍持有 —— 进程没退出,退没退由 exit 事件说。
+   * The Runtime reported a fault for this agent (`_alwith/runtimeError` and the like): its replies will never arrive, so in-flight requests fail at once.
+   * The agent itself is still held: the process has not exited; the exit event says whether it does.
    */
   fail(reason: string): void {
     this.failInflight(new AgentGoneError(this.agentId, reason))
@@ -118,13 +118,13 @@ export class Agent {
     return () => this.failureListeners.delete(listener)
   }
 
-  /** @internal 进程没了的那一刻同步通知(exit 事件到达的同一个调用栈里),`exited` 是它的 Promise 版。 */
+  /** @internal Notified synchronously the moment the process is gone (in the same call stack as the exit event); `exited` is the Promise form. */
   onGone(listener: () => void): () => void {
     this.goneListeners.add(listener)
     return () => this.goneListeners.delete(listener)
   }
 
-  /** @internal 挂上 Runtime 的三条订阅;只挂一次。 */
+  /** @internal Attaches the three Runtime subscriptions; only once. */
   async listen(): Promise<void> {
     if (this.unlisten) return
     const offNotification = await this.port.onAcpNotification(notification => {
@@ -146,10 +146,10 @@ export class Agent {
   }
 
   /**
-   * 发一条 ACP 请求,等 agent 的答复(Runtime 编 id、配对)。
-   * `signal` abort = 取消这条请求:按规范发 `$/cancel_request`(agent MAY 取消,MUST 对原请求回 -32800
-   * 或有效响应),本地立即以 `RequestCancelledError` 失败,不等 agent 配不配合。为此带 signal 的请求
-   * 由这里自选 id 交给 Runtime,撤回时才有 id 可指。
+   * Sends an ACP request and waits for the agent's reply (the Runtime assigns the id and pairs the response).
+   * `signal` abort = cancel this request: sends `$/cancel_request` per the spec (the agent MAY cancel and MUST answer the original request with -32800
+   * or a valid response), and fails locally at once with `RequestCancelledError` without waiting for the agent to cooperate. For this, requests carrying a signal
+   * pick their own id and pass it to the Runtime, so there is an id to refer to when cancelling.
    */
   request<T = unknown>(method: string, params?: unknown, options?: { signal?: AbortSignal }): Promise<T> {
     const signal = options?.signal
@@ -191,7 +191,7 @@ export class Agent {
     return this.port.acpNotify(this.agentId, method, params)
   }
 
-  /** 回答 agent 发来的请求,带原来的 id。 */
+  /** Answers a request sent by the agent, with the original id. */
   respond(id: unknown, result?: unknown, error?: { code: number; message: string }): Promise<void> {
     return this.port.acpRespond(this.agentId, id, result, error)
   }
@@ -207,9 +207,9 @@ export class Agent {
   }
 
   /**
-   * 停掉进程,等到它真的没了。Runtime 的 stop 只发终止信号,exit 事件在会话解绑、进程清理之后才来;
-   * 不等,换芯的 start 会撞上「still running」。进程可能在订阅前就已退出,那时不会再有 exit,用
-   * Runtime 当前的进程表确认。
+   * Stops the process and waits until it is really gone. The Runtime's stop only sends a termination signal; the exit event arrives after the session is unbound and the process cleaned up;
+   * without waiting, the start after an engine switch would hit "still running". The process may have exited before we subscribed, in which case no exit event will come; confirm with
+   * the Runtime's current process table.
    */
   async stop(): Promise<void> {
     if (!this._alive) return
@@ -223,7 +223,7 @@ export class Agent {
     }
   }
 
-  /** 放手:卸订阅、在飞的失败,进程留在 Runtime 里给下一个接管的(跨窗口交接)。 */
+  /** Let go: drop subscriptions, fail in-flight requests, and leave the process in the Runtime for the next taker (cross-window handoff). */
   detach(): void {
     if (!this._alive) return
     this._alive = false
@@ -253,7 +253,7 @@ export class Agent {
 export type Attached<Info extends AttachInfo = AttachInfo> = { agent: Agent; info: Info }
 
 /**
- * 这个应用持有的 agent 们。一个 Runtime 连接一份。
+ * The agents this app holds. One per Runtime connection.
  */
 export class Agents<Launch = unknown, Info extends AttachInfo = AttachInfo> {
   private readonly port: AgentPort<Launch, Info>
@@ -266,20 +266,20 @@ export class Agents<Launch = unknown, Info extends AttachInfo = AttachInfo> {
     this.handshake = handshake
   }
 
-  /** 已持有的那个;没有(从没起过、退出了、放手了)是 undefined。 */
+  /** The one currently held; undefined if none (never started, exited, or let go). */
   get(agentId: string): Agent | undefined {
     return this.held.get(agentId)
   }
 
-  /** 持有的 agent 进程没了 —— 不管是崩了还是被 `stop` 的(放手不算)。是不是自己停的应用自己知道。 */
+  /** A held agent process is gone, whether it crashed or was `stop`ped (letting go does not count). The app knows whether it stopped it itself. */
   onExit(handler: (agent: Agent) => void): () => void {
     this.exitHandlers.add(handler)
     return () => this.exitHandlers.delete(handler)
   }
 
   /**
-   * 起一个新进程。同一个 agentId 还活着时 Runtime 直接拒绝 —— 换芯是 `replace`。
-   * 握手在这里做一次;之后 Runtime 用缓存答重复的 initialize。
+   * Starts a new process. If the same agentId is still alive the Runtime rejects it outright; swapping the engine is `replace`.
+   * The handshake happens here once; afterwards the Runtime answers repeated initialize from its cache.
    */
   async start(agentId: string, launch: Launch, engine: string | null = null): Promise<Agent> {
     await this.port.start(agentId, launch)
@@ -287,8 +287,8 @@ export class Agents<Launch = unknown, Info extends AttachInfo = AttachInfo> {
   }
 
   /**
-   * 接管一条会话的活 agent:Runtime 里有就直连它(进程、上下文、没答的请求都还在),没有返回 null。
-   * `info.pendingAgentRequests` 是 agent 还在等答的请求,交给待办簿当作刚收到。
+   * Takes over a session's live agent: if the Runtime has one, connect to it directly (process, context, and unanswered requests all still there); otherwise returns null.
+   * `info.pendingAgentRequests` are requests the agent is still waiting on; hand them to the to-do ledger as if just received.
    */
   async attach(sessionId: string): Promise<Attached<Info> | null> {
     const info = await this.port.attachSession(sessionId)
@@ -298,20 +298,20 @@ export class Agents<Launch = unknown, Info extends AttachInfo = AttachInfo> {
     try {
       return { agent: await this.hold(info.agentId, info.engine), info }
     } catch (error) {
-      // 认领了却没握上手:把认领退掉,不让别的窗口再也接不上
+      // Claimed but the handshake failed: release the claim so other windows are not locked out for good
       await this.port.releaseSession(sessionId).catch(() => undefined)
       throw error
     }
   }
 
-  /** 换芯:停掉旧的、等它真的没了、再起新的。 */
+  /** Swap the engine: stop the old one, wait until it is really gone, then start the new one. */
   async replace(agentId: string, launch: Launch, engine: string | null = null): Promise<Agent> {
     await this.held.get(agentId)?.stop()
     return this.start(agentId, launch, engine)
   }
 
   private async hold(agentId: string, engine: string | null): Promise<Agent> {
-    // ACP v2 同一连接只握手一次;接管时这条由 Runtime 用缓存的握手结果回答,不打扰引擎
+    // ACP v2 handshakes once per connection; on takeover the Runtime answers with the cached handshake result, without disturbing the engine
     const initialized = await this.port.acpRequest(agentId, "initialize", {
       protocolVersion: 2,
       info: this.handshake.info,
@@ -320,7 +320,7 @@ export class Agents<Launch = unknown, Info extends AttachInfo = AttachInfo> {
     const agent = new Agent(this.port as unknown as AgentPort<unknown>, agentId, engine, initialized)
     await agent.listen()
     this.held.set(agentId, agent)
-    // 同步:exit 事件到达的同一个调用栈里就把持有表清掉、通知应用 —— 收尸与崩溃提示不能落后一个微任务
+    // Synchronous: in the same call stack as the exit event, clear the held table and notify the app; reaping and crash notices must not lag by a microtask
     agent.onGone(() => {
       if (this.held.get(agentId) === agent) this.held.delete(agentId)
       for (const handler of this.exitHandlers) handler(agent)
@@ -328,7 +328,7 @@ export class Agents<Launch = unknown, Info extends AttachInfo = AttachInfo> {
     return agent
   }
 
-  /** @internal 放手后从持有表里摘掉。 */
+  /** @internal Removes it from the held table after letting go. */
   release(agent: Agent): void {
     agent.detach()
     if (this.held.get(agent.agentId) === agent) this.held.delete(agent.agentId)
