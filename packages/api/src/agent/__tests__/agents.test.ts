@@ -97,7 +97,7 @@ const handshake = { info: { name: "test-app", version: "0" } }
 
 function make() {
   const runtime = new FakeRuntime()
-  const agents = new Agents<{ engine: string }>(runtime as unknown as RuntimeClient<{ engine: string }>, handshake)
+  const agents = new Agents<{ engine: string }, RuntimeAttachInfo>(runtime as unknown as RuntimeClient<{ engine: string }>, handshake)
   return { runtime, agents }
 }
 
@@ -131,11 +131,12 @@ describe("start and attach", () => {
   test("attach: takes over a live agent in the Runtime, uses the cached handshake and hands back unanswered requests; null when there is none", async () => {
     const { runtime, agents } = make()
     const pending = [{ id: 7, method: "session/request_permission", params: {} }]
-    runtime.attachable.set("s1", { agentId: "live", engine: "alwith", provider: "anthropic", pendingAgentRequests: pending })
+    runtime.attachable.set("s1", { agentId: "live", engine: "alwith", provider: "anthropic", providerRevision: 0, pendingAgentRequests: pending })
     runtime.running.add("live")
     const attached = await agents.attach("s1")
     expect(attached?.agent.agentId).toBe("live")
     expect(attached?.agent.engine).toBe("alwith")
+    expect(attached?.info.providerRevision).toBe(0)
     expect(attached?.info.pendingAgentRequests).toBe(pending)
     expect(agents.get("live")).toBe(attached?.agent)
     expect(await agents.attach("nobody")).toBeNull()
@@ -143,8 +144,8 @@ describe("start and attach", () => {
 
   test("attaching to an agent already held does not handshake again", async () => {
     const { runtime, agents } = make()
-    runtime.attachable.set("s1", { agentId: "live", engine: "alwith", provider: "", pendingAgentRequests: [] })
-    runtime.attachable.set("s2", { agentId: "live", engine: "alwith", provider: "", pendingAgentRequests: [] })
+    runtime.attachable.set("s1", { agentId: "live", engine: "alwith", provider: "", providerRevision: null, pendingAgentRequests: [] })
+    runtime.attachable.set("s2", { agentId: "live", engine: "alwith", provider: "", providerRevision: null, pendingAgentRequests: [] })
     const one = await agents.attach("s1")
     const two = await agents.attach("s2")
     expect(two?.agent).toBe(one?.agent)

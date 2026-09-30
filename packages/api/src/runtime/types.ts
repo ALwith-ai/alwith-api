@@ -70,6 +70,8 @@ export interface RuntimePendingAgentRequest {
 }
 
 export interface RuntimeAttachInfo {
+  /** Configuration acknowledged by the process; null for unmanaged launches. */
+  providerRevision: number | null
   agentId: string
   engine: string
   provider: string
