@@ -115,6 +115,7 @@ describe("ACP transcript", () => {
     // "boom / network / retryable" is Codex's dialect; the app reads it itself.
     expect(session.error).toEqual({
       stopReason: "_error",
+      error: null,
       meta: { codex: { error: { message: "boom", category: "network", retryable: true } } }
     })
     session = applyUpdate(session, {
@@ -200,5 +201,113 @@ describe("tool terminals", () => {
     session = applyUpdate(session, { sessionUpdate: "tool_call_update", toolCallId: "call-1", name: "Read" } as never)
     const tool = session.items[0]
     expect(tool?.kind === "tool" ? terminalOf(tool, session.terminals) : undefined).toBeNull()
+  })
+})
+
+describe("ACP alpha.8", () => {
+  test("standard error retains JSON-RPC details and clears on running", () => {
+    const error = { code: -32603, message: "Provider failed", data: { retryable: true } }
+    const failed = applyUpdate(createSession("s", "/tmp"), {
+      sessionUpdate: "state_update",
+      state: "idle",
+      stopReason: "error",
+      error
+    })
+    expect(failed.error).toEqual({ stopReason: "error", error, meta: null })
+    expect(applyUpdate(failed, { sessionUpdate: "state_update", state: "running" }).error).toBeNull()
+  })
+  test("request limits fail while an absent stop reason stays unknown", () => {
+    const session = createSession("s", "/tmp")
+    expect(
+      applyUpdate(session, { sessionUpdate: "state_update", state: "idle", stopReason: "max_turn_requests" }).error
+        ?.stopReason
+    ).toBe("max_turn_requests")
+    expect(applyUpdate(session, { sessionUpdate: "state_update", state: "idle" }).lastStopReason).toBeNull()
+  })
+  test("message identity includes the message type", () => {
+    let session = createSession("s", "/tmp")
+    session = applyUpdate(session, {
+      sessionUpdate: "user_message",
+      messageId: "same",
+      content: [{ type: "text", text: "user" }]
+    })
+    session = applyUpdate(session, {
+      sessionUpdate: "agent_message_chunk",
+      messageId: "same",
+      content: { type: "text", text: "answer" }
+    })
+    session = applyUpdate(session, {
+      sessionUpdate: "agent_thought_chunk",
+      messageId: "same",
+      content: { type: "text", text: "thought" }
+    })
+    expect(session.items.map(item => [item.kind, item.id])).toEqual([
+      ["user", "same"],
+      ["assistant", "same"],
+      ["thought", "same"]
+    ])
+    expect([0, 1, 2].map(index => text(session, index))).toEqual(["user", "answer", "thought"])
+  })
+  test("summary-first compaction preserves position, chunks, patch omission and explicit clears", () => {
+    let session = createSession("s", "/tmp")
+    session = applyUpdate(session, {
+      sessionUpdate: "compaction_summary_chunk",
+      compactionId: "c",
+      content: { type: "text", text: "first" }
+    })
+    const first = session
+    session = applyUpdate(session, {
+      sessionUpdate: "agent_message_chunk",
+      messageId: "m",
+      content: { type: "text", text: "after" }
+    })
+    session = applyUpdate(session, {
+      sessionUpdate: "compaction_summary_chunk",
+      compactionId: "c",
+      content: { type: "text", text: "second" }
+    })
+    session = applyUpdate(session, {
+      sessionUpdate: "compaction_update",
+      compactionId: "c",
+      status: "failed",
+      error: "failure",
+      _meta: { source: "agent" }
+    })
+    session = applyUpdate(session, { sessionUpdate: "compaction_update", compactionId: "c", status: "completed" })
+    expect(session.items[0]).toMatchObject({
+      kind: "compaction",
+      at: first.items[0].at,
+      summary: [
+        { type: "text", text: "first" },
+        { type: "text", text: "second" }
+      ],
+      error: "failure",
+      _meta: { source: "agent" }
+    })
+    expect(first.items[0]).toMatchObject({
+      status: "in_progress",
+      summary: [{ type: "text", text: "first" }],
+      error: null
+    })
+    session = applyUpdate(session, {
+      sessionUpdate: "compaction_update",
+      compactionId: "c",
+      status: "completed",
+      summary: [{ type: "text", text: "replacement" }],
+      error: null,
+      _meta: null
+    })
+    expect(session.items[0]).toMatchObject({
+      summary: [{ type: "text", text: "replacement" }],
+      error: null,
+      _meta: null
+    })
+    session = applyUpdate(session, {
+      sessionUpdate: "compaction_update",
+      compactionId: "c",
+      status: "completed",
+      summary: null
+    })
+    expect(session.items[0]).toMatchObject({ summary: [] })
   })
 })

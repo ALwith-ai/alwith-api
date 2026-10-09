@@ -150,9 +150,12 @@ whose results will never come back through this session, are set to `interrupted
 ## Vocabulary follows the protocol, dialects are left to the app
 
 The data model uses ACP's own shapes (`acp.ContentBlock`, `acp.ToolCallStatus`, `acp.PlanUpdateContent`),
-and does not invent another set of names. Engine dialects stay out of the package: when a turn fails, `TurnError` gives only the protocol-defined `stopReason`,
-plus the idle frame's `_meta` verbatim. Whether error details live in `_meta.alwith` or `_meta.codex` is for the app to read according to its own
-engine.
+and does not invent another set of names. Failed turns retain `stopReason`, standard JSON-RPC `error` details, and the idle frame's `_meta` verbatim.
+An absent stop reason remains unknown (`null`), rather than being recorded as a successful `end_turn`.
+Message identity includes its type: user, assistant and thought messages may share an ID.
+
+Compactions retain `summary`, `error` and `_meta` with patch semantics: omission keeps the previous value, explicit `null` clears it, and a supplied summary replaces it.
+A summary chunk creates an in-progress compaction when its ID is first seen, then appends content in receive order without moving the entity or changing an existing status.
 
 ## Division of labor with `@alwith/api/runtime`
 

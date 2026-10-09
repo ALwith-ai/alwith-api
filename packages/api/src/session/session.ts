@@ -2,6 +2,7 @@
 // Pure functions: no transport, no process, no knowledge of any UI framework. Each update returns a new Session object,
 // so the render layer can use reference equality to decide whether to redraw.
 import type * as acp from "@agentclientprotocol/sdk/experimental/v2"
+import { IdleStateUpdate } from "@agentclientprotocol/sdk/experimental/v2"
 import { isText } from "./blocks"
 
 export type SessionState = "idle" | "running" | "requires_action"
@@ -54,6 +55,7 @@ export type PlanItem = ItemBase & { kind: "plan"; plan: acp.PlanUpdateContent }
 export type CompactionItem = ItemBase & {
   kind: "compaction"
   status: acp.CompactionUpdate["status"]
+  summary: acp.ContentBlock[]
   error: string | null
 }
 export type Item = MessageItem | ToolItem | PlanItem | CompactionItem
@@ -67,13 +69,13 @@ export type Terminal = {
 }
 
 /**
- * This turn did not end normally. The protocol itself only gives `stopReason`; where error details go is each engine's own dialect
- * (alwith-cli puts them in `_meta.alwith`, codex in `_meta.codex`), so `_meta` is handed out as-is here,
- * for the app to read according to its own engine; the package does not guess dialects.
+ * A failed or limited turn. Standard JSON-RPC error details and engine-specific metadata
+ * remain separate so clients can present the error without interpreting an engine dialect.
  */
 export type TurnError = {
-  /** One of `_error` / `refusal` / `max_tokens`. */
+  /** Standard failure/limit reason, or a legacy implementation-specific `_error`. */
   stopReason: string
+  error: acp.Error | null
   /** The idle frame's `_meta`, as-is. */
   meta: Record<string, unknown> | null
 }
@@ -498,8 +500,13 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
       if (frame.state === "requires_action") return { ...session, state: "requires_action" }
       if (frame.state === "idle") {
         const idle = frame as acp.IdleStateUpdate
-        const stopReason = idle.stopReason ?? "end_turn"
-        const failed = stopReason === "_error" || stopReason === "refusal" || stopReason === "max_tokens"
+        const stopReason = idle.stopReason ?? null
+        const failed =
+          stopReason === "error" ||
+          stopReason === "_error" ||
+          stopReason === "refusal" ||
+          stopReason === "max_tokens" ||
+          stopReason === "max_turn_requests"
         const usage = idle.usage ?? null
         const turnUser = session.items.findLast(item => item.kind === "user" && item.echo !== "pending")
         const sealed = sealTurn(session, options.policy)
@@ -519,7 +526,9 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
               ? session.turnEndedAt
               : { ...session.turnEndedAt, [turnUser.id]: endedAt },
           lastStopReason: stopReason,
-          error: failed ? { stopReason, meta: meta(idle._meta) } : null
+          error: failed
+            ? { stopReason, error: IdleStateUpdate.isError(idle) ? (idle.error ?? null) : null, meta: meta(idle._meta) }
+            : null
         }
       }
       return session
@@ -663,14 +672,26 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
           ...base,
           kind: "compaction",
           status: frame.status,
+          summary: [],
           error: null
         }),
         item => ({
           ...item,
           status: frame.status,
-          error: frame.error ?? null,
-          _meta: mergeMeta(item._meta, frame._meta)
+          summary: frame.summary === undefined ? item.summary : frame.summary === null ? [] : frame.summary.slice(),
+          error: frame.error === undefined ? item.error : frame.error,
+          _meta: frame._meta === null ? null : mergeMeta(item._meta, frame._meta)
         })
+      )
+    }
+    case "compaction_summary_chunk": {
+      const frame = update as acp.CompactionSummaryChunk
+      return upsertItem<CompactionItem>(
+        session,
+        "compaction",
+        frame.compactionId,
+        base => ({ ...base, kind: "compaction", status: "in_progress", summary: [], error: null }),
+        item => ({ ...item, summary: [...item.summary, frame.content], _meta: mergeMeta(item._meta, frame._meta) })
       )
     }
     case "config_option_update":
