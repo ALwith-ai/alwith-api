@@ -165,17 +165,15 @@ describe("chunks without a messageId", () => {
         ? `${item.kind}:${textOf(item.content)}`
         : item.kind
     )
-    expect(shape).toEqual([
-      "thought:先读文件",
-      "tool",
-      "thought:再搜",
-      "assistant:完成"
-    ])
+    expect(shape).toEqual(["thought:先读文件", "tool", "thought:再搜", "assistant:完成"])
   })
 
   test("does not merge into the locally shown user message", () => {
     let session = addPrompt(createSession("s", "/tmp"), [{ type: "text", text: "hi" }], "local")
-    session = applyUpdate(session, { sessionUpdate: "user_message_chunk", content: { type: "text", text: "x" } } as never)
+    session = applyUpdate(session, {
+      sessionUpdate: "user_message_chunk",
+      content: { type: "text", text: "x" }
+    } as never)
     expect(session.items).toHaveLength(2)
     expect(session.items[0]?.id).toBe("local")
   })
@@ -185,7 +183,12 @@ describe("tool terminals", () => {
   test("found through the terminal reference in the output, never guessed from the tool id", () => {
     let session = createSession("s", "/tmp")
     const feed = (update: Record<string, unknown>) => (session = applyUpdate(session, update as never))
-    feed({ sessionUpdate: "tool_call_update", toolCallId: "call-1", name: "Bash", content: [{ type: "terminal", terminalId: "term-9" }] })
+    feed({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "call-1",
+      name: "Bash",
+      content: [{ type: "terminal", terminalId: "term-9" }]
+    })
     feed({ sessionUpdate: "terminal_update", terminalId: "term-9", command: "ls" })
     feed({ sessionUpdate: "terminal_update", terminalId: "call-1", command: "decoy" })
     const tool = session.items.find(item => item.kind === "tool")

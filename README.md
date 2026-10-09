@@ -42,3 +42,11 @@ git tag v0.1.1 && git push origin v0.1.1
 ```
 
 The workflow fails outright if the tag and `version` disagree.
+
+## Formatting
+
+Run `bun install --frozen-lockfile` to install the repository's formatting tools.
+`bun run format` formats JavaScript, TypeScript, CSS and supported configuration files;
+`bun run format:rust` formats the Rust workspace; `bun run format:all` runs both.
+Prettier and its Tailwind plugin match ALwith Desktop's versions; Prettier and Rustfmt settings match Desktop's rules.
+Generated artifacts, dependency directories, licenses and Markdown are excluded from Prettier.

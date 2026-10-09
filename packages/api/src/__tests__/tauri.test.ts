@@ -16,11 +16,14 @@ test("reloaded windows with identical request ids ignore each other's replies bu
   Object.defineProperty(globalThis, "window", { configurable: true, value: { crypto: globalThis.crypto } })
   const requests: { connectionId: string; line: string }[] = []
   const connections: string[] = []
-  mockIPC((cmd, args) => {
-    const payload = args as Record<string, unknown>
-    if (cmd === "runtime_start") connections.push(payload.connectionId as string)
-    if (cmd === "runtime_send") requests.push(payload as typeof requests[number])
-  }, { shouldMockEvents: true })
+  mockIPC(
+    (cmd, args) => {
+      const payload = args as Record<string, unknown>
+      if (cmd === "runtime_start") connections.push(payload.connectionId as string)
+      if (cmd === "runtime_send") requests.push(payload as (typeof requests)[number])
+    },
+    { shouldMockEvents: true }
+  )
   const first = new TauriRuntimeClient()
   const second = new TauriRuntimeClient()
   clients.push(first, second)
@@ -35,22 +38,40 @@ test("reloaded windows with identical request ids ignore each other's replies bu
   const newFrame = JSON.parse(requests[1].line)
   expect(oldFrame.id).toBe(newFrame.id)
   let resolved = false
-  void fresh.then(() => { resolved = true })
-  await emit(LINES_EVENT, [JSON.stringify({ id: oldFrame.id, connectionId: requests[0].connectionId, result: "old", error: null })])
+  void fresh.then(() => {
+    resolved = true
+  })
+  await emit(LINES_EVENT, [
+    JSON.stringify({ id: oldFrame.id, connectionId: requests[0].connectionId, result: "old", error: null })
+  ])
   expect(await pending).toBe("old")
   await Promise.resolve()
   expect(resolved).toBe(false)
-  await emit(LINES_EVENT, [JSON.stringify({ type: "acpAgentRequest", agentId: "codex", id: 7, method: "session/request_permission", params: {} })])
+  await emit(LINES_EVENT, [
+    JSON.stringify({
+      type: "acpAgentRequest",
+      agentId: "codex",
+      id: 7,
+      method: "session/request_permission",
+      params: {}
+    })
+  ])
   expect(seen).toHaveLength(1)
-  await emit(LINES_EVENT, [JSON.stringify({ id: newFrame.id, connectionId: requests[1].connectionId, result: "new", error: null })])
+  await emit(LINES_EVENT, [
+    JSON.stringify({ id: newFrame.id, connectionId: requests[1].connectionId, result: "new", error: null })
+  ])
   expect(await fresh).toBe("new")
 })
-
 
 test("closing a connection rejects pending work and cannot restart its transport", async () => {
   Object.defineProperty(globalThis, "window", { configurable: true, value: { crypto: globalThis.crypto } })
   let sent = false
-  mockIPC(cmd => { if (cmd === "runtime_send") sent = true }, { shouldMockEvents: true })
+  mockIPC(
+    cmd => {
+      if (cmd === "runtime_send") sent = true
+    },
+    { shouldMockEvents: true }
+  )
   const client = new TauriRuntimeClient()
   clients.push(client)
   const pending = client.version()
@@ -65,7 +86,12 @@ test("closing a connection rejects pending work and cannot restart its transport
 test("closing during event subscription cannot start an orphan transport", async () => {
   Object.defineProperty(globalThis, "window", { configurable: true, value: { crypto: globalThis.crypto } })
   let starts = 0
-  mockIPC(cmd => { if (cmd === "runtime_start") starts++ }, { shouldMockEvents: true })
+  mockIPC(
+    cmd => {
+      if (cmd === "runtime_start") starts++
+    },
+    { shouldMockEvents: true }
+  )
   const client = new TauriRuntimeClient()
   clients.push(client)
   const pending = client.version()

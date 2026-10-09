@@ -110,10 +110,19 @@ export class AgentRequests {
     if (request.method === "session/request_permission") {
       const params = request.params as acp.RequestPermissionRequest
       // sessionId is required by the protocol: without it we cannot cancel per session in bulk, so blow up instead of recording an ownerless one
-      if (typeof params?.sessionId !== "string") throw new Error(`session/request_permission is missing sessionId: ${key}`)
+      if (typeof params?.sessionId !== "string")
+        throw new Error(`session/request_permission is missing sessionId: ${key}`)
       const subject = params.subject as { type?: string; toolCall?: { toolCallId?: unknown } } | undefined
       const toolCallId = typeof subject?.toolCall?.toolCallId === "string" ? subject.toolCall.toolCallId : null
-      const pending: PendingPermission = { kind: "permission", key, id: request.id, sessionId: params.sessionId, toolCallId, params, at: Date.now() }
+      const pending: PendingPermission = {
+        kind: "permission",
+        key,
+        id: request.id,
+        sessionId: params.sessionId,
+        toolCallId,
+        params,
+        at: Date.now()
+      }
       this.items.set(key, pending)
       this.emit()
       for (const listener of [...this.received]) listener(pending)
@@ -199,7 +208,10 @@ export class AgentRequests {
   cancelSession(sessionId: string): void {
     for (const request of this.forSession(sessionId)) {
       this.items.delete(request.key)
-      this.reply(request.id, request.kind === "permission" ? { outcome: { outcome: "cancelled" } } : { action: "cancel" })
+      this.reply(
+        request.id,
+        request.kind === "permission" ? { outcome: { outcome: "cancelled" } } : { action: "cancel" }
+      )
     }
     this.emit()
   }

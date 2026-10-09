@@ -196,10 +196,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 /** See `ItemBase._meta`: merged layer by layer, later keys overriding earlier ones; arrays and scalars are replaced wholesale. */
-function mergeMeta(
-  previous: Record<string, unknown> | null,
-  incoming: unknown
-): Record<string, unknown> | null {
+function mergeMeta(previous: Record<string, unknown> | null, incoming: unknown): Record<string, unknown> | null {
   const next = meta(incoming)
   if (next === null) return previous
   if (previous === null) return next
@@ -400,9 +397,10 @@ export function acknowledgePrompt(session: Session, localId: string, messageId: 
     echo: remote === undefined ? "acknowledged" : "adopted",
     _meta: mergeMeta(local._meta, remote === undefined ? null : remote._meta)
   }
-  const items = remote === undefined
-    ? session.items.map(item => item === local ? adopted : item)
-    : session.items.filter(item => item !== local).map(item => item === remote ? adopted : item)
+  const items =
+    remote === undefined
+      ? session.items.map(item => (item === local ? adopted : item))
+      : session.items.filter(item => item !== local).map(item => (item === remote ? adopted : item))
   const turnUsage = { ...session.turnUsage }
   const turnEndedAt = { ...session.turnEndedAt }
   if (localId !== messageId) {
@@ -447,15 +445,20 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
         ? frame.messageId
         : anonymousMessageId(session, messageKind)
     if (messageKind === "user") {
-      const acknowledged = session.items.find(item => item.kind === "user" && item.id === messageId && item.echo === "acknowledged")
+      const acknowledged = session.items.find(
+        item => item.kind === "user" && item.id === messageId && item.echo === "acknowledged"
+      )
       if (acknowledged !== undefined && acknowledged.kind === "user") {
         return {
           ...session,
-          items: [...session.items.filter(item => item !== acknowledged), {
-            ...acknowledged,
-            echo: "adopted",
-            _meta: !isChunk && frame._meta === null ? null : mergeMeta(acknowledged._meta, frame._meta)
-          }]
+          items: [
+            ...session.items.filter(item => item !== acknowledged),
+            {
+              ...acknowledged,
+              echo: "adopted",
+              _meta: !isChunk && frame._meta === null ? null : mergeMeta(acknowledged._meta, frame._meta)
+            }
+          ]
         }
       }
     }

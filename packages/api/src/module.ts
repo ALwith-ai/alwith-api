@@ -4,7 +4,11 @@ import type { Readable, Writable } from "node:stream"
 import { FrameRuntimeClient } from "./runtime/frame-runtime-client"
 
 export class ModuleRequestError extends Error {
-  constructor(readonly code: number, message: string, readonly data?: unknown) {
+  constructor(
+    readonly code: number,
+    message: string,
+    readonly data?: unknown
+  ) {
     super(message)
   }
 }
@@ -34,7 +38,9 @@ export class ModuleRuntimeClient<Launch = unknown> extends FrameRuntimeClient<La
   }
 
   /** Abort work owned by this pipe on EOF, stream failure or explicit close. */
-  get signal(): AbortSignal { return this.lifetime.signal }
+  get signal(): AbortSignal {
+    return this.lifetime.signal
+  }
 
   protected connectTransport(): Promise<void> {
     return this.signal.aborted ? Promise.reject(this.signal.reason) : Promise.resolve()
@@ -43,7 +49,7 @@ export class ModuleRuntimeClient<Launch = unknown> extends FrameRuntimeClient<La
   protected write(text: string): Promise<void> {
     if (this.signal.aborted) return Promise.reject(this.signal.reason)
     return new Promise((resolve, reject) => {
-      this.options.output.write(`${text}\n`, error => error ? reject(error) : resolve())
+      this.options.output.write(`${text}\n`, error => (error ? reject(error) : resolve()))
     })
   }
 
@@ -82,7 +88,11 @@ export class ModuleRuntimeClient<Launch = unknown> extends FrameRuntimeClient<La
         return
       }
       if ("method" in frame && !("type" in frame)) {
-        if (typeof frame.method !== "string" || !Number.isSafeInteger(frame.id) || this.incoming.has(frame.id as number)) {
+        if (
+          typeof frame.method !== "string" ||
+          !Number.isSafeInteger(frame.id) ||
+          this.incoming.has(frame.id as number)
+        ) {
           throw new Error("Invalid or duplicate Runtime module request")
         }
         const id = frame.id as number
@@ -104,9 +114,13 @@ export class ModuleRuntimeClient<Launch = unknown> extends FrameRuntimeClient<La
       response = { id, result: result === undefined ? null : result }
     } catch (error) {
       // Unexpected exceptions must not expose credentials or request content to callers.
-      response = { id, error: error instanceof ModuleRequestError
-        ? { code: error.code, message: error.message, ...(error.data === undefined ? {} : { data: error.data }) }
-        : { code: -32603, message: "Module request failed" } }
+      response = {
+        id,
+        error:
+          error instanceof ModuleRequestError
+            ? { code: error.code, message: error.message, ...(error.data === undefined ? {} : { data: error.data }) }
+            : { code: -32603, message: "Module request failed" }
+      }
     }
     if (controller.signal.aborted || this.incoming.get(id) !== controller) return
     try {

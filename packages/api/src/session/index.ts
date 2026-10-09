@@ -1,4 +1,12 @@
-export { acknowledgePrompt, addPrompt, applyUpdate, createSession, INTERRUPTED, markInterrupted, terminalOf } from "./session"
+export {
+  acknowledgePrompt,
+  addPrompt,
+  applyUpdate,
+  createSession,
+  INTERRUPTED,
+  markInterrupted,
+  terminalOf
+} from "./session"
 export type {
   ApplyOptions,
   CompactionItem,

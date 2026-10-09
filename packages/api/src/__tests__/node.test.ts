@@ -25,7 +25,12 @@ describe.skipIf(!binary)("ProcessRuntimeClient", () => {
     await port.ping()
     expect(await port.runStates()).toEqual([])
     await port.start("cat", { engine: "cat" })
-    const prompt = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "session/prompt", params: { sessionId: "s1", prompt: [] } })
+    const prompt = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "session/prompt",
+      params: { sessionId: "s1", prompt: [] }
+    })
     await port.send("cat", prompt)
     const deadline = Date.now() + 5000
     while (seen.length === 0 && Date.now() < deadline) await new Promise(r => setTimeout(r, 20))
@@ -36,7 +41,6 @@ describe.skipIf(!binary)("ProcessRuntimeClient", () => {
     await expect(port.ping()).rejects.toThrow("exited")
   })
 })
-
 
 describe("ProcessRuntimeClient failed spawn", () => {
   for (const failure of ["missing", "not-executable"] as const) {
@@ -49,7 +53,12 @@ describe("ProcessRuntimeClient failed spawn", () => {
       }
       const port = new ProcessRuntimeClient({ binary: executable, engines: {}, stderr: "ignore" })
       let notifications = 0
-      const exited = new Promise<void>(resolve => port.onProcessExit(() => { notifications++; resolve() }))
+      const exited = new Promise<void>(resolve =>
+        port.onProcessExit(() => {
+          notifications++
+          resolve()
+        })
+      )
       try {
         await expect(port.ping()).rejects.toThrow()
         await exited

@@ -25,11 +25,20 @@ export interface AgentPort<Launch, Info extends AttachInfo = AttachInfo> {
   agents(): Promise<Array<{ agentId: string }>>
   attachSession(sessionId: string): Promise<Info | null>
   releaseSession(sessionId: string): Promise<void>
-  acpRequest<Result = unknown>(agentId: string, method: string, params?: unknown, options?: { id?: string | number }): Promise<Result>
+  acpRequest<Result = unknown>(
+    agentId: string,
+    method: string,
+    params?: unknown,
+    options?: { id?: string | number }
+  ): Promise<Result>
   acpNotify(agentId: string, method: string, params?: unknown): Promise<void>
   acpRespond(agentId: string, id: unknown, result?: unknown, error?: unknown): Promise<void>
-  onAcpNotification(handler: (notification: { agentId: string; method: string; params: unknown }) => void): Promise<() => void>
-  onAcpAgentRequest(handler: (request: { agentId: string; id: unknown; method: string; params: unknown }) => void): Promise<() => void>
+  onAcpNotification(
+    handler: (notification: { agentId: string; method: string; params: unknown }) => void
+  ): Promise<() => void>
+  onAcpAgentRequest(
+    handler: (request: { agentId: string; id: unknown; method: string; params: unknown }) => void
+  ): Promise<() => void>
   onExit(handler: (payload: { agentId: string }) => void): Promise<() => void>
 }
 
@@ -133,7 +142,8 @@ export class Agent {
     })
     const offRequest = await this.port.onAcpAgentRequest(request => {
       if (request.agentId !== this.agentId) return
-      for (const handler of this.requestHandlers) handler({ id: request.id, method: request.method, params: request.params })
+      for (const handler of this.requestHandlers)
+        handler({ id: request.id, method: request.method, params: request.params })
     })
     const offExit = await this.port.onExit(exit => {
       if (exit.agentId === this.agentId) this.gone("agent exited")

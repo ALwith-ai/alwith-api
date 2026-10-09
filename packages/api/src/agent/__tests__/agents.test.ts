@@ -43,7 +43,16 @@ class FakeRuntime implements Partial<RuntimeClient<{ engine: string }>> {
     for (const handler of this.exitHandlers) handler({ agentId })
   }
   async agents(): Promise<RuntimeAgentInfo[]> {
-    return [...this.running].map(agentId => ({ agentId, pid: 1, provider: "", model: "", connection: "", cpu: 0, memMb: 0, uptimeSecs: 0 }))
+    return [...this.running].map(agentId => ({
+      agentId,
+      pid: 1,
+      provider: "",
+      model: "",
+      connection: "",
+      cpu: 0,
+      memMb: 0,
+      uptimeSecs: 0
+    }))
   }
   async attachSession(sessionId: string): Promise<RuntimeAttachInfo | null> {
     this.calls.push(`attach ${sessionId}`)
@@ -58,7 +67,8 @@ class FakeRuntime implements Partial<RuntimeClient<{ engine: string }>> {
       return Promise.resolve({ protocolVersion: 2, info: { name: "fake-agent", version: "1" } } as T)
     }
     this.calls.push(`request ${agentId} ${method}`)
-    if (this.hang.has(method)) return new Promise<T>(resolve => this.hung.push({ resolve: resolve as (v: unknown) => void }))
+    if (this.hang.has(method))
+      return new Promise<T>(resolve => this.hung.push({ resolve: resolve as (v: unknown) => void }))
     return Promise.resolve(this.answer(method, params) as T)
   }
   async acpNotify(agentId: string, method: string, params?: unknown): Promise<void> {
@@ -97,7 +107,10 @@ const handshake = { info: { name: "test-app", version: "0" } }
 
 function make() {
   const runtime = new FakeRuntime()
-  const agents = new Agents<{ engine: string }, RuntimeAttachInfo>(runtime as unknown as RuntimeClient<{ engine: string }>, handshake)
+  const agents = new Agents<{ engine: string }, RuntimeAttachInfo>(
+    runtime as unknown as RuntimeClient<{ engine: string }>,
+    handshake
+  )
   return { runtime, agents }
 }
 
@@ -125,13 +138,24 @@ describe("start and attach", () => {
     expect(second.alive).toBe(true)
     expect(second.engine).toBe("dsh")
     // The refused start also reached the Runtime (which refused it), so two starts are recorded before the stop
-    expect(runtime.calls.filter(c => !c.startsWith("initialize"))).toEqual(["start a1", "start a1", "stop a1", "start a1"])
+    expect(runtime.calls.filter(c => !c.startsWith("initialize"))).toEqual([
+      "start a1",
+      "start a1",
+      "stop a1",
+      "start a1"
+    ])
   })
 
   test("attach: takes over a live agent in the Runtime, uses the cached handshake and hands back unanswered requests; null when there is none", async () => {
     const { runtime, agents } = make()
     const pending = [{ id: 7, method: "session/request_permission", params: {} }]
-    runtime.attachable.set("s1", { agentId: "live", engine: "alwith", provider: "anthropic", providerRevision: 0, pendingAgentRequests: pending })
+    runtime.attachable.set("s1", {
+      agentId: "live",
+      engine: "alwith",
+      provider: "anthropic",
+      providerRevision: 0,
+      pendingAgentRequests: pending
+    })
     runtime.running.add("live")
     const attached = await agents.attach("s1")
     expect(attached?.agent.agentId).toBe("live")
@@ -144,8 +168,20 @@ describe("start and attach", () => {
 
   test("attaching to an agent already held does not handshake again", async () => {
     const { runtime, agents } = make()
-    runtime.attachable.set("s1", { agentId: "live", engine: "alwith", provider: "", providerRevision: null, pendingAgentRequests: [] })
-    runtime.attachable.set("s2", { agentId: "live", engine: "alwith", provider: "", providerRevision: null, pendingAgentRequests: [] })
+    runtime.attachable.set("s1", {
+      agentId: "live",
+      engine: "alwith",
+      provider: "",
+      providerRevision: null,
+      pendingAgentRequests: []
+    })
+    runtime.attachable.set("s2", {
+      agentId: "live",
+      engine: "alwith",
+      provider: "",
+      providerRevision: null,
+      pendingAgentRequests: []
+    })
     const one = await agents.attach("s1")
     const two = await agents.attach("s2")
     expect(two?.agent).toBe(one?.agent)
@@ -204,7 +240,9 @@ describe("requests", () => {
     const login = agent.request("_alwith/login", {}, { signal: controller.signal })
     controller.abort()
     await expect(login).rejects.toBeInstanceOf(RequestCancelledError)
-    expect(runtime.notified).toEqual([{ agentId: "a1", method: "$/cancel_request", params: { requestId: expect.stringMatching(/^app-/) } }])
+    expect(runtime.notified).toEqual([
+      { agentId: "a1", method: "$/cancel_request", params: { requestId: expect.stringMatching(/^app-/) } }
+    ])
     runtime.answerHung({ ok: true })
     await flush()
   })
@@ -213,7 +251,9 @@ describe("requests", () => {
     const { runtime, agents } = make()
     const agent = await agents.start("a1", { engine: "alwith" })
     await agent.respond(9, { outcome: { outcome: "cancelled" } })
-    expect(runtime.responded).toEqual([{ agentId: "a1", id: 9, result: { outcome: { outcome: "cancelled" } }, error: undefined }])
+    expect(runtime.responded).toEqual([
+      { agentId: "a1", id: 9, result: { outcome: { outcome: "cancelled" } }, error: undefined }
+    ])
   })
 })
 

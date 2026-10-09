@@ -93,7 +93,6 @@ export interface RuntimeStderrPayload {
   line: string
 }
 
-
 export interface RuntimeAgentInfo {
   agentId: string
   pid: number | null
@@ -167,4 +166,3 @@ export type RuntimeEvent =
   | ({ type: "acpNotification" } & RuntimeAcpNotification)
   | ({ type: "acpAgentRequest" } & RuntimeAcpAgentRequest)
   | { type: "runStates"; sessions: SessionRunState[] }
-

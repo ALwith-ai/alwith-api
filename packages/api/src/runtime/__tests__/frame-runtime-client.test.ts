@@ -59,9 +59,17 @@ describe("FrameRuntimeClient", () => {
     const denied = port.send("a", "x")
     await flush()
     port.push({ id: 1, result: null, error: { code: -32000, message: "not owned" } })
-    await expect(denied).rejects.toMatchObject({ name: "RuntimeRequestError", method: "send", code: -32000, reason: "not owned" })
+    await expect(denied).rejects.toMatchObject({
+      name: "RuntimeRequestError",
+      method: "send",
+      code: -32000,
+      reason: "not owned"
+    })
     port.failWrites = true
-    await expect(port.ping()).rejects.toMatchObject({ code: RuntimeErrorCode.connectionLost, message: "ping: pipe closed" })
+    await expect(port.ping()).rejects.toMatchObject({
+      code: RuntimeErrorCode.connectionLost,
+      message: "ping: pipe closed"
+    })
   })
 
   test("events dispatch by type, and a transport disconnect rejects every in-flight request", async () => {
@@ -94,7 +102,11 @@ describe("FrameRuntimeClient", () => {
     const turn = port.prompt("a", "s-1", [{ type: "text", text: "hi" }])
     await flush()
     expect(port.written.map(line => JSON.parse(line))).toEqual([
-      { id: 1, method: "sessionNew", params: { agentId: "a", cwd: "/work", mcpServers: [], meta: { alwith: { maxBudgetUsd: 1 } } } },
+      {
+        id: 1,
+        method: "sessionNew",
+        params: { agentId: "a", cwd: "/work", mcpServers: [], meta: { alwith: { maxBudgetUsd: 1 } } }
+      },
       { id: 2, method: "prompt", params: { agentId: "a", sessionId: "s-1", prompt: [{ type: "text", text: "hi" }] } }
     ])
     port.push({ type: "acpNotification", agentId: "a", method: "session/update", params: { sessionId: "s-1" } })
@@ -147,7 +159,11 @@ describe("in order, no duplicates: missed frames are refilled from the journal",
     port.push(update(3))
     await flush()
     expect(sequencesOf(seen)).toEqual([0, 1])
-    expect(JSON.parse(port.written[0])).toEqual({ id: 1, method: "sessionEvents", params: { sessionId: "s-1", afterSequence: 1, limit: 2000 } })
+    expect(JSON.parse(port.written[0])).toEqual({
+      id: 1,
+      method: "sessionEvents",
+      params: { sessionId: "s-1", afterSequence: 1, limit: 2000 }
+    })
     port.push({ id: 1, result: [journaled(2)], error: null })
     await flush()
     await flush()
@@ -193,7 +209,10 @@ describe("in order, no duplicates: missed frames are refilled from the journal",
     port.push(update(0))
     port.push({ type: "lagged", dropped: 2 })
     await flush()
-    expect(JSON.parse(port.written[0])).toMatchObject({ method: "sessionEvents", params: { sessionId: "s-1", afterSequence: 0 } })
+    expect(JSON.parse(port.written[0])).toMatchObject({
+      method: "sessionEvents",
+      params: { sessionId: "s-1", afterSequence: 0 }
+    })
     port.push({ id: 1, result: [journaled(1), journaled(2)], error: null })
     await flush()
     await flush()
@@ -223,8 +242,18 @@ describe("in order, no duplicates: missed frames are refilled from the journal",
     port.push(update(0))
     port.push(update(3))
     await flush()
-    const prompt = JSON.stringify({ jsonrpc: "2.0", id: 9, method: "session/prompt", params: { sessionId: "s-1", prompt: [] } })
-    const permission = JSON.stringify({ jsonrpc: "2.0", id: 10, method: "session/request_permission", params: { sessionId: "s-1" } })
+    const prompt = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 9,
+      method: "session/prompt",
+      params: { sessionId: "s-1", prompt: [] }
+    })
+    const permission = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 10,
+      method: "session/request_permission",
+      params: { sessionId: "s-1" }
+    })
     port.push({
       id: 1,
       result: [
@@ -236,6 +265,15 @@ describe("in order, no duplicates: missed frames are refilled from the journal",
     await flush()
     await flush()
     expect(outbound).toEqual([{ agentId: "a", line: prompt, sessionId: "s-1", sequence: 1 }])
-    expect(requests).toEqual([{ agentId: "a", id: 10, method: "session/request_permission", params: { sessionId: "s-1" }, sessionId: "s-1", sequence: 2 }])
+    expect(requests).toEqual([
+      {
+        agentId: "a",
+        id: 10,
+        method: "session/request_permission",
+        params: { sessionId: "s-1" },
+        sessionId: "s-1",
+        sequence: 2
+      }
+    ])
   })
 })

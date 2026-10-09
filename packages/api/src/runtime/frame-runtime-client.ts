@@ -186,8 +186,16 @@ export abstract class FrameRuntimeClient<Launch = unknown> implements RuntimeCli
     return () => this.stderrHandlers.delete(handler)
   }
 
-  acpRequest<Result = unknown>(agentId: string, method: string, params?: unknown, options?: { id?: string | number }): Promise<Result> {
-    return this.request<Result>("acpRequest", options?.id === undefined ? { agentId, method, params } : { agentId, method, params, id: options.id })
+  acpRequest<Result = unknown>(
+    agentId: string,
+    method: string,
+    params?: unknown,
+    options?: { id?: string | number }
+  ): Promise<Result> {
+    return this.request<Result>(
+      "acpRequest",
+      options?.id === undefined ? { agentId, method, params } : { agentId, method, params, id: options.id }
+    )
   }
 
   async acpNotify(agentId: string, method: string, params?: unknown): Promise<void> {
@@ -198,27 +206,59 @@ export abstract class FrameRuntimeClient<Launch = unknown> implements RuntimeCli
     await this.request("acpRespond", { agentId, id, result, error })
   }
 
-  initialize(agentId: string, info?: { name: string; version: string }, capabilities?: Record<string, unknown>): Promise<unknown> {
+  initialize(
+    agentId: string,
+    info?: { name: string; version: string },
+    capabilities?: Record<string, unknown>
+  ): Promise<unknown> {
     return this.request("initialize", { agentId, info, capabilities })
   }
 
-  sessionNew(agentId: string, cwd: string, mcpServers: unknown[] = [], meta?: Record<string, unknown>): Promise<RuntimeSessionResult> {
+  sessionNew(
+    agentId: string,
+    cwd: string,
+    mcpServers: unknown[] = [],
+    meta?: Record<string, unknown>
+  ): Promise<RuntimeSessionResult> {
     return this.request("sessionNew", { agentId, cwd, mcpServers, meta })
   }
 
-  sessionLoad(agentId: string, sessionId: string, cwd: string, mcpServers: unknown[] = [], meta?: Record<string, unknown>): Promise<RuntimeSessionResult> {
+  sessionLoad(
+    agentId: string,
+    sessionId: string,
+    cwd: string,
+    mcpServers: unknown[] = [],
+    meta?: Record<string, unknown>
+  ): Promise<RuntimeSessionResult> {
     return this.request("sessionLoad", { agentId, sessionId, cwd, mcpServers, meta })
   }
 
-  sessionResume(agentId: string, sessionId: string, cwd: string, replayFrom?: unknown, meta?: Record<string, unknown>): Promise<RuntimeSessionResult> {
+  sessionResume(
+    agentId: string,
+    sessionId: string,
+    cwd: string,
+    replayFrom?: unknown,
+    meta?: Record<string, unknown>
+  ): Promise<RuntimeSessionResult> {
     return this.request("sessionResume", { agentId, sessionId, cwd, replayFrom, meta })
   }
 
-  sessionFork(agentId: string, sessionId: string, cwd: string, mcpServers: unknown[] = [], meta?: Record<string, unknown>): Promise<RuntimeSessionResult> {
+  sessionFork(
+    agentId: string,
+    sessionId: string,
+    cwd: string,
+    mcpServers: unknown[] = [],
+    meta?: Record<string, unknown>
+  ): Promise<RuntimeSessionResult> {
     return this.request("sessionFork", { agentId, sessionId, cwd, mcpServers, meta })
   }
 
-  prompt(agentId: string, sessionId: string, prompt: unknown[], meta?: Record<string, unknown>): Promise<RuntimePromptResult> {
+  prompt(
+    agentId: string,
+    sessionId: string,
+    prompt: unknown[],
+    meta?: Record<string, unknown>
+  ): Promise<RuntimePromptResult> {
     return this.request("prompt", { agentId, sessionId, prompt, meta })
   }
 
@@ -328,7 +368,8 @@ export abstract class FrameRuntimeClient<Launch = unknown> implements RuntimeCli
 
   /** The transport dropped: every in-flight request fails now instead of hanging. */
   protected rejectPending(reason: string): void {
-    for (const pending of this.pending.values()) pending.reject(RuntimeRequestError.connectionLost(pending.method, reason))
+    for (const pending of this.pending.values())
+      pending.reject(RuntimeRequestError.connectionLost(pending.method, reason))
     this.pending.clear()
   }
 
@@ -525,7 +566,13 @@ export abstract class FrameRuntimeClient<Launch = unknown> implements RuntimeCli
     }
     if (typeof value.method !== "string") return // a response to our own request: nothing to replay
     if (value.id !== undefined && value.id !== null) {
-      const event: RuntimeAcpAgentRequest = { agentId, id: value.id, method: value.method, params: value.params, ...position }
+      const event: RuntimeAcpAgentRequest = {
+        agentId,
+        id: value.id,
+        method: value.method,
+        params: value.params,
+        ...position
+      }
       for (const handler of this.acpAgentRequestHandlers) handler(event)
       return
     }

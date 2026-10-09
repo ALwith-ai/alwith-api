@@ -6,7 +6,10 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit -p packages/api",
-    "test": "bun test packages"
+    "test": "bun test packages",
+    "format": "bun prettier --experimental-cli --write .",
+    "format:rust": "cargo fmt --all",
+    "format:all": "bun run format:rust && bun run format"
   },
   "devDependencies": {
     "@agentclientprotocol/sdk": "1.5.1",
@@ -14,6 +17,8 @@
     "@types/bun": "^1",
     "@types/node": "^24",
     "typescript": "^5",
-    "typescript-compiler": "npm:typescript@5.9.3"
+    "typescript-compiler": "npm:typescript@5.9.3",
+    "prettier": "^3.9.9",
+    "prettier-plugin-tailwindcss": "^0.8.1"
   }
 }

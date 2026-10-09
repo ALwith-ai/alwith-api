@@ -3,7 +3,7 @@ import type {
   RuntimeOutbound,
   RuntimeAgentInfo,
   RuntimeAttachInfo,
-    RuntimeExitPayload,
+  RuntimeExitPayload,
   RuntimeAcpAgentRequest,
   RuntimeAcpNotification,
   RuntimeInboundPayload,
@@ -57,20 +57,57 @@ export interface RuntimeClient<Launch = unknown> {
   // ---- ACP: the Runtime speaks ACP v2 for you. `send` / `onInbound` stay as the escape hatch. ----
 
   /** Any ACP request; the Runtime numbers it and waits for the answer. Pass your own `id` only when you may withdraw it with `$/cancel_request`. */
-  acpRequest<Result = unknown>(agentId: string, method: string, params?: unknown, options?: { id?: string | number }): Promise<Result>
+  acpRequest<Result = unknown>(
+    agentId: string,
+    method: string,
+    params?: unknown,
+    options?: { id?: string | number }
+  ): Promise<Result>
   /** Any ACP notification (no id). */
   acpNotify(agentId: string, method: string, params?: unknown): Promise<void>
   /** Answer a request the agent made (`onAcpAgentRequest`), by its `id`. */
   acpRespond(agentId: string, id: unknown, result?: unknown, error?: unknown): Promise<void>
   /** ACP handshake with your own client info / capabilities (e.g. elicitation); cached after the first time. Optional: session methods handshake with defaults. */
-  initialize(agentId: string, info?: { name: string; version: string }, capabilities?: Record<string, unknown>): Promise<unknown>
+  initialize(
+    agentId: string,
+    info?: { name: string; version: string },
+    capabilities?: Record<string, unknown>
+  ): Promise<unknown>
   /** New session; the first call on an agent also performs the ACP handshake. `meta` becomes `_meta`. */
-  sessionNew(agentId: string, cwd: string, mcpServers?: unknown[], meta?: Record<string, unknown>): Promise<RuntimeSessionResult>
-  sessionLoad(agentId: string, sessionId: string, cwd: string, mcpServers?: unknown[], meta?: Record<string, unknown>): Promise<RuntimeSessionResult>
-  sessionResume(agentId: string, sessionId: string, cwd: string, replayFrom?: unknown, meta?: Record<string, unknown>): Promise<RuntimeSessionResult>
-  sessionFork(agentId: string, sessionId: string, cwd: string, mcpServers?: unknown[], meta?: Record<string, unknown>): Promise<RuntimeSessionResult>
+  sessionNew(
+    agentId: string,
+    cwd: string,
+    mcpServers?: unknown[],
+    meta?: Record<string, unknown>
+  ): Promise<RuntimeSessionResult>
+  sessionLoad(
+    agentId: string,
+    sessionId: string,
+    cwd: string,
+    mcpServers?: unknown[],
+    meta?: Record<string, unknown>
+  ): Promise<RuntimeSessionResult>
+  sessionResume(
+    agentId: string,
+    sessionId: string,
+    cwd: string,
+    replayFrom?: unknown,
+    meta?: Record<string, unknown>
+  ): Promise<RuntimeSessionResult>
+  sessionFork(
+    agentId: string,
+    sessionId: string,
+    cwd: string,
+    mcpServers?: unknown[],
+    meta?: Record<string, unknown>
+  ): Promise<RuntimeSessionResult>
   /** One turn; resolves when the turn ends. Content arrives through `onAcpNotification` meanwhile. */
-  prompt(agentId: string, sessionId: string, prompt: unknown[], meta?: Record<string, unknown>): Promise<RuntimePromptResult>
+  prompt(
+    agentId: string,
+    sessionId: string,
+    prompt: unknown[],
+    meta?: Record<string, unknown>
+  ): Promise<RuntimePromptResult>
   /** Cancel the running turn (`session/cancel`). */
   cancel(agentId: string, sessionId: string): Promise<void>
   onAcpNotification(handler: (notification: RuntimeAcpNotification) => void): Promise<() => void>

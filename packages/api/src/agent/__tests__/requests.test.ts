@@ -47,11 +47,13 @@ describe("receiving requests", () => {
   test("an unknown request gets -32601 instead of leaving the agent waiting", () => {
     const { requests, sent } = ledger()
     requests.receive({ id: 7, method: "fs/read_text_file", params: {} })
-    expect(sent).toEqual([{ id: 7, result: undefined, error: { code: METHOD_NOT_FOUND, message: "method not found: fs/read_text_file" } }])
+    expect(sent).toEqual([
+      { id: 7, result: undefined, error: { code: METHOD_NOT_FOUND, message: "method not found: fs/read_text_file" } }
+    ])
     expect(requests.list()).toEqual([])
   })
 
-  test("9 and \"9\" are two different ids", () => {
+  test('9 and "9" are two different ids', () => {
     const { requests } = ledger()
     requests.receive(permission(9, "s", "a"))
     requests.receive(permission("9", "s", "b"))
@@ -60,7 +62,9 @@ describe("receiving requests", () => {
 
   test("a permission without sessionId throws instead of recording an ownerless entry", () => {
     const { requests } = ledger()
-    expect(() => requests.receive({ id: 1, method: "session/request_permission", params: { subject: {} } })).toThrow("missing sessionId")
+    expect(() => requests.receive({ id: 1, method: "session/request_permission", params: { subject: {} } })).toThrow(
+      "missing sessionId"
+    )
   })
 
   test("the batch the Runtime hands over on attach counts as just received", () => {
@@ -76,7 +80,9 @@ describe("answering", () => {
     const { requests, sent } = ledger()
     requests.receive(permission("p-1", "s", "t"))
     expect(requests.answerPermission("t", { outcome: "selected", optionId: "yes" })).toBe(true)
-    expect(sent).toEqual([{ id: "p-1", result: { outcome: { outcome: "selected", optionId: "yes" } }, error: undefined }])
+    expect(sent).toEqual([
+      { id: "p-1", result: { outcome: { outcome: "selected", optionId: "yes" } }, error: undefined }
+    ])
     expect(requests.answerPermission("t", { outcome: "cancelled" })).toBe(false)
     expect(sent).toHaveLength(1)
   })
@@ -122,7 +128,9 @@ describe("agent withdrawal and completion", () => {
     requests.onWithdrawn(request => withdrawn.push(request.key))
     requests.receive(permission(1, "s", "t"))
     requests.onNotification("$/cancel_request", { requestId: 1 })
-    expect(sent).toEqual([{ id: 1, result: undefined, error: { code: REQUEST_CANCELLED, message: "Request cancelled" } }])
+    expect(sent).toEqual([
+      { id: 1, result: undefined, error: { code: REQUEST_CANCELLED, message: "Request cancelled" } }
+    ])
     expect(withdrawn).toEqual(["1"])
     expect(requests.list()).toEqual([])
     requests.onNotification("$/cancel_request", { requestId: 404 })

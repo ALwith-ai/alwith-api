@@ -27,31 +27,34 @@ export class PromptTracker {
     return new Promise<PromptCompletion>((resolve, reject) => {
       const pending: Pending = { messageId: null, resolve, reject }
       current.pending.add(pending)
-      void Promise.resolve().then(() => {
-        if (!current.pending.has(pending)) throw new Error("Prompt connection retired before sending")
-        return send()
-      }).then(response => {
-        if (!current.pending.has(pending)) return
-        if (typeof response.messageId !== "string" || response.messageId.length === 0) {
-          throw new Error("session/prompt returned no messageId")
-        }
-        acknowledge(response)
-        pending.messageId = response.messageId
-        let insertion = current.insertions.get(response.messageId)
-        if (insertion === undefined) {
-          insertion = { completion: null }
-          current.insertions.set(response.messageId, insertion)
-        }
-        if (insertion.completion !== null) {
+      void Promise.resolve()
+        .then(() => {
+          if (!current.pending.has(pending)) throw new Error("Prompt connection retired before sending")
+          return send()
+        })
+        .then(response => {
+          if (!current.pending.has(pending)) return
+          if (typeof response.messageId !== "string" || response.messageId.length === 0) {
+            throw new Error("session/prompt returned no messageId")
+          }
+          acknowledge(response)
+          pending.messageId = response.messageId
+          let insertion = current.insertions.get(response.messageId)
+          if (insertion === undefined) {
+            insertion = { completion: null }
+            current.insertions.set(response.messageId, insertion)
+          }
+          if (insertion.completion !== null) {
+            current.pending.delete(pending)
+            resolve(insertion.completion)
+          }
+          this.prune(sessionId, current)
+        })
+        .catch((error: unknown) => {
           current.pending.delete(pending)
-          resolve(insertion.completion)
-        }
-        this.prune(sessionId, current)
-      }).catch((error: unknown) => {
-        current.pending.delete(pending)
-        reject(error)
-        this.prune(sessionId, current)
-      })
+          reject(error)
+          this.prune(sessionId, current)
+        })
     })
   }
 

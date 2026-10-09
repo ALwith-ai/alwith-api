@@ -59,7 +59,11 @@ describe("_meta accumulates across frames", () => {
     expect(item<ToolItem>(session, "t")._meta).toEqual({ alwith: { tags: ["a"], n: 1 } })
     session = apply(session, { sessionUpdate: "tool_call_update", toolCallId: "t", _meta: null })
     expect(item<ToolItem>(session, "t")._meta).toBeNull()
-    session = apply(session, { sessionUpdate: "tool_call_update", toolCallId: "t", _meta: { alwith: { tags: ["b"], n: 2 } } })
+    session = apply(session, {
+      sessionUpdate: "tool_call_update",
+      toolCallId: "t",
+      _meta: { alwith: { tags: ["b"], n: 2 } }
+    })
     expect(item<ToolItem>(session, "t")._meta).toEqual({ alwith: { tags: ["b"], n: 2 } })
   })
 
@@ -125,7 +129,11 @@ describe("locally shown user messages and their claim by the agent's echo", () =
   test("after the claim, frames with the same id only contribute _meta; an echo split into chunks does not change local content", () => {
     let session = addPrompt(createSession("s", "/tmp"), [{ type: "text", text: "hi" }], "local-1")
     session = acknowledgePrompt(session, "local-1", "a")
-    session = apply(session, { sessionUpdate: "user_message_chunk", messageId: "a", content: { type: "text", text: "hi" } })
+    session = apply(session, {
+      sessionUpdate: "user_message_chunk",
+      messageId: "a",
+      content: { type: "text", text: "hi" }
+    })
     session = apply(session, {
       sessionUpdate: "user_message_chunk",
       messageId: "a",
@@ -140,8 +148,16 @@ describe("locally shown user messages and their claim by the agent's echo", () =
 
   test("without a pending local message the agent's user message becomes a new item, as in history replay", () => {
     let session = createSession("s", "/tmp")
-    session = apply(session, { sessionUpdate: "user_message_chunk", messageId: "h1", content: { type: "text", text: "old" } })
-    session = apply(session, { sessionUpdate: "user_message_chunk", messageId: "h1", content: { type: "text", text: "er" } })
+    session = apply(session, {
+      sessionUpdate: "user_message_chunk",
+      messageId: "h1",
+      content: { type: "text", text: "old" }
+    })
+    session = apply(session, {
+      sessionUpdate: "user_message_chunk",
+      messageId: "h1",
+      content: { type: "text", text: "er" }
+    })
     const prompt = item<MessageItem>(session, "h1")
     expect(prompt.echo).toBeNull()
     // User message chunks are whole-block replays, not streaming deltas: each is its own block
@@ -163,7 +179,11 @@ describe("locally shown user messages and their claim by the agent's echo", () =
 
   test("a message without a receipt stays pending and is not claimed by other messages", () => {
     let session = addPrompt(createSession("s", "/tmp"), [{ type: "text", text: "one" }], "l1")
-    session = apply(session, { sessionUpdate: "agent_message_chunk", messageId: "a1", content: { type: "text", text: "1" } })
+    session = apply(session, {
+      sessionUpdate: "agent_message_chunk",
+      messageId: "a1",
+      content: { type: "text", text: "1" }
+    })
     session = apply(session, { sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" })
     session = addPrompt(session, [{ type: "text", text: "two" }], "l2")
     expect(session.items.map(entry => entry.id)).toEqual(["l1", "a1", "l2"])
@@ -215,7 +235,11 @@ test("queued local messages do not capture the current answer or its idle usage"
   store.acknowledgePrompt("s", first, "a")
   store.accept("s", { sessionUpdate: "user_message", messageId: "a", content: [] } as never)
   const second = store.addPrompt("s", [])
-  store.accept("s", { sessionUpdate: "agent_message_chunk", messageId: "answer", content: { type: "text", text: "first answer" } } as never)
+  store.accept("s", {
+    sessionUpdate: "agent_message_chunk",
+    messageId: "answer",
+    content: { type: "text", text: "first answer" }
+  } as never)
   store.accept("s", { sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" } as never)
   const [a, b] = store.turns("s")
   expect(a?.entries.map(item => item.id)).toEqual(["answer"])
@@ -233,7 +257,12 @@ test("notice neither enters history nor changes task state", () => {
 for (const sessionUpdate of ["user_message", "agent_message", "agent_thought"]) {
   test(`${sessionUpdate} omitted fields preserve, null clears, later chunks append`, () => {
     let session = createSession("s", "/tmp")
-    session = apply(session, { sessionUpdate, messageId: "m", content: [{ type: "text", text: "old" }], _meta: { alwith: { uuid: "old" } } })
+    session = apply(session, {
+      sessionUpdate,
+      messageId: "m",
+      content: [{ type: "text", text: "old" }],
+      _meta: { alwith: { uuid: "old" } }
+    })
     const before = item<MessageItem>(session, "m")
     session = apply(session, { sessionUpdate, messageId: "m" })
     expect(item<MessageItem>(session, "m").content).toEqual(before.content)
@@ -241,7 +270,11 @@ for (const sessionUpdate of ["user_message", "agent_message", "agent_thought"]) 
     session = apply(session, { sessionUpdate, messageId: "m", content: null, _meta: null })
     expect(item<MessageItem>(session, "m").content).toEqual([])
     expect(item<MessageItem>(session, "m")._meta).toBeNull()
-    session = apply(session, { sessionUpdate: `${sessionUpdate}_chunk`, messageId: "m", content: { type: "text", text: "new" } })
+    session = apply(session, {
+      sessionUpdate: `${sessionUpdate}_chunk`,
+      messageId: "m",
+      content: { type: "text", text: "new" }
+    })
     expect(item<MessageItem>(session, "m").content).toEqual([{ type: "text", text: "new" }])
   })
 }

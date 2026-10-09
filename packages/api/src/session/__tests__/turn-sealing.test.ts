@@ -22,11 +22,9 @@ function startTool(
 }
 
 function idle(session: ReturnType<typeof createSession>, policy?: FoldPolicy) {
-  return applyUpdate(
-    session,
-    { sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" } as never,
-    { policy }
-  )
+  return applyUpdate(session, { sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" } as never, {
+    policy
+  })
 }
 
 /** alwith-cli's rule: background runs are marked in `_meta.alwith.runInBackground`; Monitor can only be recognised by tool name. */
@@ -124,11 +122,9 @@ describe("SessionStore carries the rule", () => {
 describe("tool output as delta or full", () => {
   const output = (text: string) => [{ type: "content", content: { type: "text", text } }]
   const push = (session: ReturnType<typeof createSession>, text: string, policy?: FoldPolicy) =>
-    applyUpdate(
-      session,
-      { sessionUpdate: "tool_call_update", toolCallId: "t1", content: output(text) } as never,
-      { policy }
-    )
+    applyUpdate(session, { sessionUpdate: "tool_call_update", toolCallId: "t1", content: output(text) } as never, {
+      policy
+    })
 
   test("full by default: a later frame replaces the earlier one, with the same replacement semantics as name and similar fields", () => {
     let session = createSession("s", "/tmp")
@@ -149,11 +145,9 @@ describe("tool output as delta or full", () => {
     const appending: FoldPolicy = { toolContent: "append" }
     let session = createSession("s", "/tmp")
     session = push(session, "第一行", appending)
-    session = applyUpdate(
-      session,
-      { sessionUpdate: "tool_call_update", toolCallId: "t1", content: [] } as never,
-      { policy: appending }
-    )
+    session = applyUpdate(session, { sessionUpdate: "tool_call_update", toolCallId: "t1", content: [] } as never, {
+      policy: appending
+    })
     expect(tool(session, "t1").content).toEqual(output("第一行") as never)
   })
 
@@ -167,11 +161,9 @@ describe("tool output as delta or full", () => {
         { policy }
       )
       expect(tool(session, "t1").content).toEqual(output("第一行") as never)
-      session = applyUpdate(
-        session,
-        { sessionUpdate: "tool_call_update", toolCallId: "t1", content: null } as never,
-        { policy }
-      )
+      session = applyUpdate(session, { sessionUpdate: "tool_call_update", toolCallId: "t1", content: null } as never, {
+        policy
+      })
       expect(tool(session, "t1").content).toEqual([])
     }
   })
@@ -227,7 +219,7 @@ describe("outliving the turn is inherited along the parent chain", () => {
 describe("a turn-outliving tool takes its status only from frames that also declare outliving the turn", () => {
   const flagged = { _meta: { alwith: { runInBackground: true } } }
 
-  test("the unmarked completed within the turn only means \"sent to the background\" and is not final", () => {
+  test('the unmarked completed within the turn only means "sent to the background" and is not final', () => {
     let session = startTool(createSession("s", "/tmp"), "bg", { name: "Bash", ...flagged }, alwith)
     session = applyUpdate(
       session,
@@ -252,11 +244,9 @@ describe("a turn-outliving tool takes its status only from frames that also decl
 
   test("Monitor is recognised by name; every frame of it counts as declared, so its status updates as usual", () => {
     let session = startTool(createSession("s", "/tmp"), "m", { name: "Monitor" }, alwith)
-    session = applyUpdate(
-      session,
-      { sessionUpdate: "tool_call_update", toolCallId: "m", status: "failed" } as never,
-      { policy: alwith }
-    )
+    session = applyUpdate(session, { sessionUpdate: "tool_call_update", toolCallId: "m", status: "failed" } as never, {
+      policy: alwith
+    })
     expect(tool(session, "m").status).toBe("failed")
   })
 
@@ -304,7 +294,11 @@ describe("end time", () => {
     const localId = store.addPrompt("s", [{ type: "text", text: "go" }])
     store.acknowledgePrompt("s", localId, "user")
     store.accept("s", { sessionUpdate: "user_message", messageId: "user", content: [] } as never)
-    store.accept("s", { sessionUpdate: "agent_message_chunk", messageId: "a", content: { type: "text", text: "ok" } } as never)
+    store.accept("s", {
+      sessionUpdate: "agent_message_chunk",
+      messageId: "a",
+      content: { type: "text", text: "ok" }
+    } as never)
     expect(store.turns("s")[0]?.endedAt).toBeNull()
     store.accept("s", { sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" } as never)
     const [turn] = store.turns("s")
@@ -333,9 +327,17 @@ describe("times strictly increase", () => {
     const localId = store.addPrompt("s", [{ type: "text", text: "go" }])
     store.acknowledgePrompt("s", localId, "user")
     store.accept("s", { sessionUpdate: "user_message", messageId: "user", content: [] } as never)
-    store.accept("s", { sessionUpdate: "agent_message_chunk", messageId: "a", content: { type: "text", text: "1" } } as never)
+    store.accept("s", {
+      sessionUpdate: "agent_message_chunk",
+      messageId: "a",
+      content: { type: "text", text: "1" }
+    } as never)
     store.accept("s", { sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" } as never)
-    store.accept("s", { sessionUpdate: "agent_message_chunk", messageId: "b", content: { type: "text", text: "2" } } as never)
+    store.accept("s", {
+      sessionUpdate: "agent_message_chunk",
+      messageId: "b",
+      content: { type: "text", text: "2" }
+    } as never)
     const [turn] = store.turns("s")
     const [before, after] = turn!.entries
     expect(before!.at).toBeLessThan(turn!.endedAt!)
