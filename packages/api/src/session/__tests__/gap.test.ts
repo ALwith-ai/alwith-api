@@ -76,7 +76,8 @@ describe("forwarding chain", () => {
     store.endReplay("s", { replayId: "r", after: 2, cut: 30 })
     expect(store.get("s").appliedThrough).toBe(40)
     expect(store.held("s")).toBe(0)
-    expect(gaps).toEqual([], "the replay was filling it; no second backfill")
+    // the replay was filling it; no second backfill
+    expect(gaps).toEqual([])
   })
 
   test("a full replay forgets what was held", () => {
