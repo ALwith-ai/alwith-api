@@ -9,8 +9,6 @@ export {
   markInterrupted,
   markTerminated,
   patchMeta,
-  type RecordLink,
-  recordLinkOf,
   recordSeqOf,
   terminalOf
 } from "./session"
