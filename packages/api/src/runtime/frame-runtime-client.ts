@@ -143,6 +143,43 @@ export abstract class FrameRuntimeClient<Launch = unknown> implements RuntimeCli
     await this.request("markRead", { sessionId, version })
   }
 
+  sessionClaim(request: {
+    sessionId: string
+    attemptId: string
+    inputDigest: string
+    callerInstanceId: string
+  }): Promise<ClaimOutcome> {
+    return this.request("sessionClaim", request)
+  }
+
+  sessionClaimAbort(callerInstanceId: string, attemptId: string): Promise<ClaimStatus> {
+    return this.request("sessionClaimAbort", { callerInstanceId, attemptId })
+  }
+
+  sessionClaimStatus(callerInstanceId: string, attemptId: string): Promise<ClaimStatus | null> {
+    return this.request("sessionClaimStatus", { callerInstanceId, attemptId })
+  }
+
+  releaseClaim(claimToken: string, target: ClaimTarget): Promise<ClaimStatus> {
+    return this.request("releaseClaim", { claimToken, target })
+  }
+
+  sessionDeleteBegin(sessionId: string): Promise<SessionDeletion> {
+    return this.request("sessionDeleteBegin", { sessionId })
+  }
+
+  sessionDeleteEnd(sessionId: string, outcome: DeletionOutcome): Promise<SessionDeletion | null> {
+    return this.request("sessionDeleteEnd", { sessionId, ...outcome })
+  }
+
+  sessionDeleteAbandon(sessionId: string): Promise<boolean> {
+    return this.request("sessionDeleteAbandon", { sessionId })
+  }
+
+  sessionDeletions(): Promise<SessionDeletion[]> {
+    return this.request("sessionDeletions", {})
+  }
+
   async setSessionTitle(sessionId: string, title: string): Promise<void> {
     await this.request("setSessionTitle", { sessionId, title })
   }
