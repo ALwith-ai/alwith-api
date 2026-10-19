@@ -27,8 +27,9 @@ export interface SessionRunState {
   executionId: string | null
   executionRole: string | null
   lastActivityAt: number
-  /** Monotonic per session: moves with every change the Runtime publishes, so a version names
-   *  exactly one content. `markRead` carries the version it confirms. */
+  /** Monotonic per session: moves when the state or the interruption changes (not with activity
+   *  in the same state), so a version names one attention state. `markRead` carries the version
+   *  it confirms. */
   version: number
   /** Why the Runtime holds the session in `requires_action` without the agent asking: it was
    *  `running` when the Runtime stopped. Cleared by the next state the agent reports. */

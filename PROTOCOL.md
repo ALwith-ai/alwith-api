@@ -320,7 +320,7 @@ The Runtime infers each session's state from the traffic and broadcasts any chan
 | `state` | `running` / `requires_action` / `idle` are values reported directly by ACP v2 `state_update`; `done` is synthesized by the Runtime to mean "finished but nobody has looked": it becomes `done` on running → idle, and only `markRead {sessionId}` can turn it back to `idle` |
 | `reusableDraft` | The session was created but no prompt has been sent yet |
 | `owner` | The owner (a historical field name; the value is the owner id) |
-| `version` | Monotonic per session: moves with every change the Runtime publishes, so a version names exactly one content. Survives a Runtime restart |
+| `version` | Monotonic per session: moves when `state` or `interruption` changes (not with activity in the same state), so a version names one attention state. Survives a Runtime restart |
 | `interruption` | Why the Runtime holds the session in `requires_action` without the agent asking: `"runtime restarted"` when the session was `running` as the Runtime stopped (its turn was cut short). Cleared by the next state the agent reports; `null` otherwise. Run states survive a restart: `done` stays unread, `requires_action` stays, nothing is lowered to `idle` |
 | `cwd` / `title` | From the `params.cwd` of `session/new` and the like, and from the title in `session_info_update`; `setSessionTitle {sessionId,title}` can push a title from the application side |
 | `tasks` | Tool calls in `tool_call_update` whose `_meta.alwith.runInBackground` is true |
