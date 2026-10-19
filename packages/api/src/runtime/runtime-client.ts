@@ -35,6 +35,28 @@ export interface RuntimeClient<Launch = unknown> {
   agentForSession(sessionId: string): Promise<string | null>
   releaseSession(sessionId: string): Promise<void>
   stopSession(sessionId: string): Promise<void>
+  /** Take a session for an attempt: idempotent on `(callerInstanceId, attemptId)`, refused under a
+   *  different `inputDigest` (`claim/digest_mismatch`) or while the session is being deleted
+   *  (`claim/deleting`). A live process is attached on the spot; otherwise the claim is reserved. */
+  sessionClaim(request: {
+    sessionId: string
+    attemptId: string
+    inputDigest: string
+    callerInstanceId: string
+  }): Promise<ClaimOutcome>
+  /** Withdraw an attempt, even before its claim arrives; `claim/transferred` when a later claimant took the session. */
+  sessionClaimAbort(callerInstanceId: string, attemptId: string): Promise<ClaimStatus>
+  sessionClaimStatus(callerInstanceId: string, attemptId: string): Promise<ClaimStatus | null>
+  /** Let go of a live claim by its token: `released` keeps the process headless, `stopped` ends it. */
+  releaseClaim(claimToken: string, target: ClaimTarget): Promise<ClaimStatus>
+  /** Begin deleting a session: claims retire, new ones are refused, the process is stopped and
+   *  waited for. Resolves at `unlinking`; then unlink the record and report with `sessionDeleteEnd`. */
+  sessionDeleteBegin(sessionId: string): Promise<SessionDeletion>
+  /** `deleted` forgets the session; `failed` keeps the deletion with the state found. */
+  sessionDeleteEnd(sessionId: string, outcome: DeletionOutcome): Promise<SessionDeletion | null>
+  /** The user gives the deletion up; the session may be claimed again. */
+  sessionDeleteAbandon(sessionId: string): Promise<boolean>
+  sessionDeletions(): Promise<SessionDeletion[]>
   /** `version`: the state the reader saw; an older confirmation does not clear a newer `done`.
    *  `null` confirms whatever is current. */
   markRead(sessionId: string, version: number | null): Promise<void>
