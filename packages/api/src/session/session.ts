@@ -464,7 +464,61 @@ export function terminalOf(tool: ToolItem, terminals: Session["terminals"]): Ter
 export function applyUpdate(session: Session, update: acp.SessionUpdate, options: ApplyOptions = {}): Session {
   const folded = fold(session, update, options)
   const seq = recordSeqOf(update)
-  return seq !== null && seq > folded.appliedThrough ? { ...folded, appliedThrough: seq } : folded
+  const advanced = seq !== null && seq > folded.appliedThrough ? { ...folded, appliedThrough: seq } : folded
+  const terminated = instanceTerminationOf(update)
+  return terminated === null ? advanced : markTerminated(advanced, terminated)
+}
+
+/** A writer instance of the record ended (`session_info_update` with `_meta.alwith.instanceTerminated`). */
+export type InstanceTermination = { instanceId: string; finalSeq: number }
+
+function instanceTerminationOf(update: acp.SessionUpdate): InstanceTermination | null {
+  if (update.sessionUpdate !== "session_info_update") return null
+  const alwith = (update as { _meta?: { alwith?: { instanceTerminated?: unknown } } | null })._meta?.alwith
+  const terminated = alwith?.instanceTerminated as Partial<InstanceTermination> | undefined
+  if (terminated === undefined) return null
+  if (typeof terminated.instanceId !== "string" || typeof terminated.finalSeq !== "number")
+    throw new Error(`malformed instanceTerminated: ${JSON.stringify(terminated)}`)
+  return { instanceId: terminated.instanceId, finalSeq: terminated.finalSeq }
+}
+
+/** The record seq an item was persisted at (`_meta.alwith.seq`), or null when its line never carried one. */
+function itemSeq(item: Item): number | null {
+  const seq = (item._meta as { alwith?: { seq?: unknown } } | null)?.alwith?.seq
+  return typeof seq === "number" ? seq : null
+}
+
+/**
+ * The agent's writer instance that produced everything up to `finalSeq` is confirmed gone: a tool it left running and a turn
+ * it never closed will not get their terminal frames from it. Those become `interrupted`; what a successor wrote after
+ * `finalSeq` is untouched. This is the only judgment that may call a turn interrupted without the agent saying so, and it
+ * rests on the record, not on a timer or on the client's view of the connection.
+ */
+export function markTerminated(session: Session, termination: InstanceTermination): Session {
+  const now = nextStamp(session)
+  const before = (item: Item): boolean => {
+    const seq = itemSeq(item)
+    return seq === null ? item.replayed : seq <= termination.finalSeq
+  }
+  const reaped = mapTools(session, tool =>
+    isRunning(tool) && before(tool) ? { ...tool, status: INTERRUPTED, endedAt: now } : tool
+  )
+  const lastUser = [...reaped.items].reverse().find(item => item.kind === "user")
+  const openTurn = lastUser !== undefined && !(lastUser.id in reaped.turnEndedAt) && before(lastUser)
+  const changed = reaped !== session || openTurn
+  if (!changed) return session
+  return {
+    ...reaped,
+    clock: now,
+    ...(openTurn
+      ? {
+          state: "idle" as const,
+          lastStopReason: INTERRUPTED,
+          turnEndedAt: { ...reaped.turnEndedAt, [lastUser.id]: now },
+          error: { stopReason: INTERRUPTED, error: null, meta: { alwith: { instanceTerminated: termination } } }
+        }
+      : {})
+  }
 }
 
 function fold(session: Session, update: acp.SessionUpdate, options: ApplyOptions): Session {

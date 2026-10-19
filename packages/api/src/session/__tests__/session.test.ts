@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test"
 import { isText, textOf } from "../blocks"
-import { addPrompt, applyUpdate, createSession, DISCONNECTED, markDisconnected, terminalOf } from "../session"
+import {
+  addPrompt,
+  applyUpdate,
+  createSession,
+  DISCONNECTED,
+  INTERRUPTED,
+  markDisconnected,
+  terminalOf,
+  type ToolItem
+} from "../session"
 import { SessionStore } from "../store"
 
 function text(session: ReturnType<typeof createSession>, index = 0): string {
@@ -323,5 +332,72 @@ describe("markDisconnected", () => {
     const idle = markDisconnected({ ...createSession("t", "/tmp"), attached: true })
     expect(idle.error).toBeNull()
     expect(idle.attached).toBe(false)
+  })
+})
+
+describe("markTerminated", () => {
+  test("a writer instance's termination interrupts the tools it left running and the turn it never closed, up to its final seq", () => {
+    let session = createSession("s", "/tmp")
+    const frame = (update: Record<string, unknown>) => {
+      session = applyUpdate(session, update as never)
+    }
+    frame({
+      sessionUpdate: "user_message",
+      messageId: "u1",
+      content: [{ type: "text", text: "q" }],
+      _meta: { alwith: { seq: 0 } }
+    })
+    frame({ sessionUpdate: "state_update", state: "running" })
+    frame({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "t1",
+      name: "Bash",
+      status: "in_progress",
+      _meta: { alwith: { seq: 1 } }
+    })
+    frame({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "t2",
+      name: "Read",
+      status: "completed",
+      _meta: { alwith: { seq: 2 } }
+    })
+    frame({
+      sessionUpdate: "session_info_update",
+      _meta: { alwith: { seq: 3, instanceTerminated: { instanceId: "i-1", finalSeq: 2 } } }
+    })
+    const tools = session.items.filter(item => item.kind === "tool") as ToolItem[]
+    expect(tools.map(tool => [tool.id, tool.status])).toEqual([
+      ["t1", INTERRUPTED],
+      ["t2", "completed"]
+    ])
+    expect(session.state).toBe("idle")
+    expect(session.error).toEqual({
+      stopReason: INTERRUPTED,
+      error: null,
+      meta: { alwith: { instanceTerminated: { instanceId: "i-1", finalSeq: 2 } } }
+    })
+    expect("u1" in session.turnEndedAt).toBe(true)
+    expect(session.appliedThrough).toBe(3)
+    // A successor's work after the final seq is untouched by an earlier instance's termination.
+    frame({
+      sessionUpdate: "user_message",
+      messageId: "u2",
+      content: [{ type: "text", text: "again" }],
+      _meta: { alwith: { seq: 4 } }
+    })
+    frame({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "t3",
+      name: "Bash",
+      status: "in_progress",
+      _meta: { alwith: { seq: 5 } }
+    })
+    frame({
+      sessionUpdate: "session_info_update",
+      _meta: { alwith: { seq: 6, instanceTerminated: { instanceId: "i-0", finalSeq: 2 } } }
+    })
+    expect((session.items.find(item => item.id === "t3") as ToolItem).status).toBe("in_progress")
+    expect("u2" in session.turnEndedAt).toBe(false)
   })
 })

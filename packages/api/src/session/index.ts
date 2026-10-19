@@ -7,12 +7,14 @@ export {
   INTERRUPTED,
   markDisconnected,
   markInterrupted,
+  markTerminated,
   patchMeta,
   recordSeqOf,
   terminalOf
 } from "./session"
 export { replayCursorFor, replayIdOf, replayReceiptOf, SEQ_CURSOR, supportsSeqCursor } from "./replay"
 export type { ReplayCursor, ReplayReceipt } from "./replay"
+export type { InstanceTermination } from "./session"
 export type {
   ApplyOptions,
   CompactionItem,
