@@ -153,6 +153,7 @@ describe("start and attach", () => {
     const pending = [{ id: 7, method: "session/request_permission", params: {} }]
     runtime.attachable.set("s1", {
       agentId: "live",
+      agentInstanceId: "live#1",
       engine: "alwith",
       provider: "anthropic",
       providerRevision: 0,
@@ -172,6 +173,7 @@ describe("start and attach", () => {
     const { runtime, agents } = make()
     runtime.attachable.set("s1", {
       agentId: "live",
+      agentInstanceId: "live#1",
       engine: "alwith",
       provider: "",
       providerRevision: null,
@@ -179,6 +181,7 @@ describe("start and attach", () => {
     })
     runtime.attachable.set("s2", {
       agentId: "live",
+      agentInstanceId: "live#1",
       engine: "alwith",
       provider: "",
       providerRevision: null,
