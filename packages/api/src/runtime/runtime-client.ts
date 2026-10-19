@@ -17,7 +17,6 @@ import type {
   SessionDeletion,
   SessionEventFrame,
   SessionLifecycleFrame,
-  SessionReplacement,
   SessionRunState
 } from "./types"
 
@@ -63,16 +62,6 @@ export interface RuntimeClient<Launch = unknown> {
   /** The user gives the deletion up; the session may be claimed again. */
   sessionDeleteAbandon(sessionId: string): Promise<boolean>
   sessionDeletions(): Promise<SessionDeletion[]>
-  /** Replacement transaction (2.4): record the intent to replace the process under a live claim;
-   *  idempotent on `replacementId`, refused under a different `inputDigest`. The claim is untouched. */
-  replaceBegin(claimToken: string, replacementId: string, inputDigest: string): Promise<SessionReplacement>
-  /** The point of no return: the claim enters `replacing`, the old process is stopped and waited for.
-   *  Resolves at `stopped`; start the new process and resume the session, which publishes the
-   *  successor claim (new token, same attempt). Re-asked after a lost answer, it reports the stage. */
-  replaceCommit(replacementId: string): Promise<SessionReplacement>
-  replaceStatus(replacementId: string): Promise<SessionReplacement | null>
-  /** Withdraw at any stage; a published successor is released or stopped per `target`. */
-  replaceAbort(replacementId: string, target: ClaimTarget): Promise<SessionReplacement>
   /** `version`: the state the reader saw; an older confirmation does not clear a newer `done`.
    *  `null` confirms whatever is current. */
   markRead(sessionId: string, version: number | null): Promise<void>
