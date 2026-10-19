@@ -16,3 +16,9 @@ signature, so one push carries the whole change.
 
 Origin: user instruction (2026-10-19), after a Runtime change went through nine pushes, five of them
 compile errors CI could have been spared.
+
+## Commit messages: English only, one commit per change
+
+- Write commit messages in English only. No Chinese in subjects or bodies, in any repo.
+- Squash churn before pushing: one commit per logical change. Never leave an add-then-remove sequence (a feature commit followed by its revert, or a dependency pinned and re-pinned) in history; rewrite it into the net result.
+- Origin: user instruction (2026-10-20).
