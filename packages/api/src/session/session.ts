@@ -166,6 +166,12 @@ export type Session = {
   updatedAt: string | null
   /** The session's own metadata from `session_info_update`, patched like `ItemBase._meta`. */
   _meta: Record<string, unknown> | null
+  /**
+   * The record position this session has applied through: the largest `_meta.alwith.seq` any frame carried (an agent stamps
+   * a message or tool result with the seq of its persisted record line), or the `cut` of the last replay. -1 until a frame
+   * says. A resume asks for `after: appliedThrough`, so only what the record gained since is replayed.
+   */
+  appliedThrough: number
 }
 
 export function createSession(id: string, cwd: string, title: string | null = null): Session {
@@ -189,8 +195,15 @@ export function createSession(id: string, cwd: string, title: string | null = nu
     commands: [],
     terminals: {},
     updatedAt: null,
-    _meta: null
+    _meta: null,
+    appliedThrough: -1
   }
+}
+
+/** The record seq a frame carries (`_meta.alwith.seq`), or null. */
+export function recordSeqOf(update: acp.SessionUpdate): number | null {
+  const alwith = (update as { _meta?: { alwith?: { seq?: unknown } } | null })._meta?.alwith
+  return typeof alwith?.seq === "number" ? alwith.seq : null
 }
 
 function meta(value: unknown): Record<string, unknown> | null {
@@ -449,6 +462,12 @@ export function terminalOf(tool: ToolItem, terminals: Session["terminals"]): Ter
 
 /** Consumes one `session/update` frame. Terminal output has already been decoded by `SessionStore`. */
 export function applyUpdate(session: Session, update: acp.SessionUpdate, options: ApplyOptions = {}): Session {
+  const folded = fold(session, update, options)
+  const seq = recordSeqOf(update)
+  return seq !== null && seq > folded.appliedThrough ? { ...folded, appliedThrough: seq } : folded
+}
+
+function fold(session: Session, update: acp.SessionUpdate, options: ApplyOptions): Session {
   const decodedTerminalText = options.text
   const messageKind = MESSAGE_KINDS[update.sessionUpdate]
   if (messageKind) {

@@ -4,6 +4,7 @@
 // and the same `TextDecoder` must keep decoding it. This is the one piece of state a pure reducer cannot hold.
 import type * as acp from "@agentclientprotocol/sdk/experimental/v2"
 import { acknowledgePrompt, addPrompt, applyUpdate, type FoldPolicy, markInterrupted, type Session } from "./session"
+import type { ReplayReceipt } from "./replay"
 import { type Turn, turns } from "./turns"
 
 function decodeBase64(data: string): Uint8Array {
@@ -31,19 +32,39 @@ export class SessionStore {
     this.sessions.set(session.id, session)
   }
 
-  beginReplay(id: string): void {
+  /**
+   * A replay is about to stream in. From `"start"` the session is emptied first; from a record position (`after`) what is
+   * held stays and the replayed frames extend it, so a session that lost its connection catches up without being rebuilt.
+   */
+  beginReplay(id: string, from: "start" | number = "start"): void {
+    const session = this.get(id)
+    if (from === "start") {
+      this.sessions.set(id, {
+        ...session,
+        items: [],
+        terminals: {},
+        turnUsage: {},
+        turnEndedAt: {},
+        clock: 0,
+        restoring: true,
+        error: null,
+        appliedThrough: -1
+      })
+      for (const key of this.decoders.keys()) if (key.startsWith(`${id}:`)) this.decoders.delete(key)
+      return
+    }
+    this.sessions.set(id, { ...session, restoring: true, error: null })
+  }
+
+  /** The resume answered: the session is live again and has the record through the replay's `cut` (when the agent said). */
+  endReplay(id: string, receipt: ReplayReceipt | null): void {
     const session = this.get(id)
     this.sessions.set(id, {
       ...session,
-      items: [],
-      terminals: {},
-      turnUsage: {},
-      turnEndedAt: {},
-      clock: 0,
-      restoring: true,
-      error: null
+      attached: true,
+      restoring: false,
+      appliedThrough: receipt === null ? session.appliedThrough : Math.max(session.appliedThrough, receipt.cut)
     })
-    for (const key of this.decoders.keys()) if (key.startsWith(`${id}:`)) this.decoders.delete(key)
   }
 
   accept(id: string, update: acp.SessionUpdate): Session {
