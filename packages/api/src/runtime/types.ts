@@ -80,58 +80,11 @@ export interface RuntimeAttachInfo {
   /** Configuration acknowledged by the process; null for unmanaged launches. */
   providerRevision: number | null
   agentId: string
-  /** This process, as distinct from any earlier or later process under the same `agentId`. */
-  agentInstanceId: string
   engine: string
   provider: string
   /** Unanswered agent requests (`session/request_permission`…) for the new owner to answer. */
   pendingAgentRequests: RuntimePendingAgentRequest[]
 }
-
-/** How a claim ended when it neither failed nor was aborted. */
-export type ClaimRetirement = "released" | "stopped" | "transferred" | "deleted"
-
-/** Where a claim stands. `reserved`: no live process ran the session; the claimant starts one and
- *  resumes the session, and the claim turns `active` when the session appears on that claimant's
- *  agent. `active`: a live agent runs the session under this claim. The rest are terminal. */
-export type ClaimPhase =
-  | { phase: "reserved" }
-  | { phase: "active"; agentId: string; agentInstanceId: string }
-  | { phase: "retired"; how: ClaimRetirement }
-  | { phase: "failed"; reason: string }
-  | { phase: "aborted" }
-
-/** A claim as the Runtime records it. `(callerInstanceId, attemptId)` is the claimant's idempotency
- *  key; `claimToken` names the ownership and is carried by every later operation on it. Tokens
- *  belong to one Runtime process and die with it. */
-export interface ClaimStatus {
-  /** Empty for an abort that arrived before its claim. */
-  sessionId: string
-  callerInstanceId: string
-  attemptId: string
-  claimToken: string
-  phase: ClaimPhase
-}
-
-/** The answer to `sessionClaim`; `attach` is present when a live process already ran the session. */
-export interface ClaimOutcome {
-  claim: ClaimStatus
-  attach: RuntimeAttachInfo | null
-}
-
-export type ClaimTarget = "released" | "stopped"
-
-/** Where a session's deletion stands; a finished deletion leaves no entry. */
-export type DeletionStage =
-  { stage: "stopping" } | { stage: "unlinking" } | { stage: "failed"; actualResourceState: string }
-
-export interface SessionDeletion {
-  sessionId: string
-  stage: DeletionStage
-  beganAt: number
-}
-
-export type DeletionOutcome = { outcome: "deleted" } | { outcome: "failed"; actualResourceState: string }
 
 export interface RuntimeInboundPayload {
   agentId: string

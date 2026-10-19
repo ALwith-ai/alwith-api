@@ -15,10 +15,7 @@ use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::{
-    AttachInfo, ClaimOutcome, ClaimStatus, ClaimTarget, DeletionOutcome, ResponseError, RuntimeEvent, SessionDeletion,
-    SessionEventFrame, SessionLifecycleFrame, SessionRunState,
-};
+use crate::{AttachInfo, ResponseError, RuntimeEvent, SessionEventFrame, SessionLifecycleFrame, SessionRunState};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
@@ -500,67 +497,6 @@ impl RuntimeClient {
     pub async fn stop_session(&self, session_id: &str, owner: Option<&str>) -> Result<(), ResponseError> {
         let params = Self::with_owner(serde_json::json!({ "sessionId": session_id }), owner);
         self.request("stopSession", Some(params)).await.map(|_| ())
-    }
-
-    /// Take a session for an attempt (`sessionClaim`); see `ClaimOutcome`.
-    pub async fn session_claim(
-        &self, session_id: &str, attempt_id: &str, input_digest: &str, caller_instance_id: &str, owner: Option<&str>,
-    ) -> Result<ClaimOutcome, ResponseError> {
-        let params = Self::with_owner(
-            serde_json::json!({
-                "sessionId": session_id, "attemptId": attempt_id, "inputDigest": input_digest,
-                "callerInstanceId": caller_instance_id
-            }),
-            owner,
-        );
-        self.typed("sessionClaim", Some(params)).await
-    }
-
-    pub async fn session_claim_abort(
-        &self, caller_instance_id: &str, attempt_id: &str, owner: Option<&str>,
-    ) -> Result<ClaimStatus, ResponseError> {
-        let params = Self::with_owner(
-            serde_json::json!({ "callerInstanceId": caller_instance_id, "attemptId": attempt_id }),
-            owner,
-        );
-        self.typed("sessionClaimAbort", Some(params)).await
-    }
-
-    pub async fn session_claim_status(
-        &self, caller_instance_id: &str, attempt_id: &str,
-    ) -> Result<Option<ClaimStatus>, ResponseError> {
-        self.typed(
-            "sessionClaimStatus",
-            Some(serde_json::json!({ "callerInstanceId": caller_instance_id, "attemptId": attempt_id })),
-        )
-        .await
-    }
-
-    pub async fn release_claim(
-        &self, claim_token: &str, target: ClaimTarget, owner: Option<&str>,
-    ) -> Result<ClaimStatus, ResponseError> {
-        let params = Self::with_owner(serde_json::json!({ "claimToken": claim_token, "target": target }), owner);
-        self.typed("releaseClaim", Some(params)).await
-    }
-
-    pub async fn session_delete_begin(&self, session_id: &str) -> Result<SessionDeletion, ResponseError> {
-        self.typed("sessionDeleteBegin", Some(serde_json::json!({ "sessionId": session_id }))).await
-    }
-
-    pub async fn session_delete_end(
-        &self, session_id: &str, outcome: DeletionOutcome,
-    ) -> Result<Option<SessionDeletion>, ResponseError> {
-        let mut params = serde_json::to_value(outcome).expect("deletion outcome serializes");
-        params["sessionId"] = Value::String(session_id.to_string());
-        self.typed("sessionDeleteEnd", Some(params)).await
-    }
-
-    pub async fn session_delete_abandon(&self, session_id: &str) -> Result<bool, ResponseError> {
-        self.typed("sessionDeleteAbandon", Some(serde_json::json!({ "sessionId": session_id }))).await
-    }
-
-    pub async fn session_deletions(&self) -> Result<Vec<SessionDeletion>, ResponseError> {
-        self.typed("sessionDeletions", None).await
     }
 
     pub async fn detach_owner(&self, owner: &str) -> Result<(), ResponseError> {

@@ -1,10 +1,6 @@
 import type { RuntimeClient } from "./runtime-client"
 import { RuntimeErrorCode } from "./types"
 import type {
-  ClaimOutcome,
-  ClaimStatus,
-  ClaimTarget,
-  DeletionOutcome,
   JournalPosition,
   RuntimeAcpAgentRequest,
   RuntimeAcpNotification,
@@ -19,7 +15,6 @@ import type {
   RuntimeResponseError,
   RuntimeSessionResult,
   RuntimeStderrPayload,
-  SessionDeletion,
   SessionEventFrame,
   SessionLifecycleFrame,
   SessionRunState

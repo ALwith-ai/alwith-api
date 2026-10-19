@@ -67,7 +67,7 @@ Missing either one gives 401. The subprotocol the server replies with is `alwith
 | `ALWITH_RUNTIME_TOKEN` | Required for ws | Handshake token |
 | `ALWITH_RUNTIME_ADDR` | No | Listen address when `--listen ws://` has no address, default `127.0.0.1:0` |
 | `ALWITH_RUNTIME_JOURNAL` | No | Session journal directory, default `alwith/runtime/sessions` under the platform cache directory |
-| `ALWITH_RUNTIME_ATTENTION` | No | Directory of `run-states.json` (the run states, kept across restarts) `agents.json` (leases of the agent processes it started, reclaimed on the next start) and `deleting.json` (deletions in progress, §6.3.2), default `alwith/Runtime` under the platform data directory |
+| `ALWITH_RUNTIME_ATTENTION` | No | Directory of `run-states.json` (the run states, kept across restarts) and `agents.json` (leases of the agent processes it started, reclaimed on the next start), default `alwith/Runtime` under the platform data directory |
 | `ALWITH_RUNTIME_PARENT_PID` | No | Parent process pid; the Runtime exits by itself when the parent is gone (unix) |
 | `ALWITH_MODULES_DIR` | No | Module directory (the application's `node_modules`), see §7 |
 
@@ -345,55 +345,6 @@ A `session/request_permission` sent by the agent is an ordinary ACP request; it 
 - `release {sessionId}`: gives up ownership, and the agent becomes ownerless.
 - `agentForSession {sessionId}` → agentId or null.
 
-### 6.3.1 Claims (attach with an identity)
-
-`attachSession` takes a session by owner alone. A **claim** takes it for an *attempt* the caller can name
-again, so a window that lost the answer (reload, timeout) re-asks and gets the same one, and a
-window that changed its mind can withdraw before the Runtime ever heard from it
-(`docs/plans/2026-10-19-session-lifecycle.md` 1.1-1.3 in alwith-desktop).
-
-```json
-{"id": 9, "method": "sessionClaim", "params": {"sessionId": "s-1", "attemptId": "open-7", "inputDigest": "sha256:…", "callerInstanceId": "window-2@3", "owner": "window-2"}}
-→ {"id": 9, "result": {"claim": {"sessionId":"s-1","callerInstanceId":"window-2@3","attemptId":"open-7","claimToken":"a1f3.4","phase":{"phase":"active","agentId":"chat-1","agentInstanceId":"chat-1#a1f3.2"}}, "attach": {…AttachInfo…}}}
-```
-
-- `(callerInstanceId, attemptId)` is the idempotency key: the same attempt gets its recorded answer; a
-  different `inputDigest` under the same attempt is refused (`claim/digest_mismatch`); a terminal
-  attempt stays terminal.
-- `phase`: `reserved` (no live process ran the session: start one, `session/resume` it, and the claim turns
-  `active` the moment the session appears on your agent), `active` (`agentId`, `agentInstanceId`; `attach`
-  carries the AttachInfo when the process was taken on the spot), `retired` (`how`: `released` / `stopped` /
-  `transferred` — a later claimant took the session, its requests and unanswered permissions went with it —
-  / `deleted`), `failed` (`reason`: the process died under it), `aborted`.
-- The same holder claiming again shares the live claim (same token). A different holder takes over.
-- `claimToken` belongs to this Runtime process and dies with it. `agentInstanceId` (also on AttachInfo)
-  names the process as distinct from any earlier or later one under the same `agentId`.
-- `sessionClaimAbort {callerInstanceId, attemptId}` withdraws an attempt, even before its claim arrives
-  (the late claim then finds `aborted`). A claim this attempt alone held is released (process kept, headless);
-  one taken over by a later claimant answers `claim/transferred` with the status in `error.data`.
-- `sessionClaimStatus {callerInstanceId, attemptId}` → ClaimStatus or null.
-- `releaseClaim {claimToken, target: "released" | "stopped"}`: let go by token; checked against the holder.
-- A holder's connection or sub-owner going away (`detachOwner`) aborts what it reserved and releases what it held;
-  an agent exiting fails the claims on it.
-
-### 6.3.2 Deleting
-
-```json
-{"id": 10, "method": "sessionDeleteBegin", "params": {"sessionId": "s-1"}}
-→ {"id": 10, "result": {"sessionId":"s-1","stage":{"stage":"unlinking"},"beganAt":1757770000000}}
-{"id": 11, "method": "sessionDeleteEnd", "params": {"sessionId": "s-1", "outcome": "deleted"}}
-→ {"id": 11, "result": null}
-```
-
-- `sessionDeleteBegin`: the session's claims retire as `deleted`, new claims and `attachSession` are refused
-  (`claim/deleting`), the process running it is stopped and waited for. Answers at `unlinking`: no process runs
-  the session; unlink the record (the engine's `session/delete`) and report.
-- `sessionDeleteEnd {sessionId, outcome: "deleted"}` forgets the session (run state included);
-  `{outcome: "failed", actualResourceState}` keeps the deletion at `failed` with what the deleter found.
-- `sessionDeleteAbandon {sessionId}` gives the deletion up; `sessionDeletions` lists those in progress.
-- Intent and stage are persisted (`deleting.json`, see §2.3): a Runtime that restarts mid-deletion resumes at
-  `unlinking` and keeps refusing claims until the deletion ends or is abandoned.
-
 ### 6.4 History
 
 Every session's ACP frames are recorded in the journal (16MB per session by default; when exceeded the earliest are dropped), numbered monotonically by `sequence`:
@@ -510,20 +461,12 @@ You can also skip the client: anything that can open a WebSocket and read and wr
 | `start` | `agentId, provider, owner?` | null (errors if a process with the same name is still alive) | Any connection |
 | `send` | `agentId, line, owner?` | null | Owner |
 | `stop` | `agentId, owner?` | null | Owner, or the agent is an orphan |
-| `attachSession` | `sessionId, owner?` | AttachInfo or null; error `claim/deleting` | Any connection (becomes owner on success) |
+| `attachSession` | `sessionId, owner?` | AttachInfo or null | Any connection (becomes owner on success) |
 | `releaseSession` | `sessionId, owner?` | null | Owner |
 | `stopSession` | `sessionId, owner?` | null | Owner |
 | `detachOwner` | `owner` | null | Any connection (affects only its own sub-owners) |
 | `releaseExecution` | `executionId` | bool | Any connection |
 | `agentForSession` | `sessionId` | agentId or null | Any connection |
-| `sessionClaim` | `sessionId, attemptId, inputDigest, callerInstanceId, owner?` | `{claim, attach}` (§6.3.1); errors `claim/digest_mismatch`, `claim/deleting` | Any connection (becomes owner when active) |
-| `sessionClaimAbort` | `callerInstanceId, attemptId, owner?` | ClaimStatus; error `claim/transferred` | The claimant |
-| `sessionClaimStatus` | `callerInstanceId, attemptId` | ClaimStatus or null | Any connection |
-| `releaseClaim` | `claimToken, target, owner?` | ClaimStatus; errors `claim/unknown`, `claim/not_holder`, `claim/not_active`, `claim/transferred` | Holder |
-| `sessionDeleteBegin` | `sessionId` | SessionDeletion at `unlinking` | Any connection |
-| `sessionDeleteEnd` | `sessionId, outcome, actualResourceState?` | SessionDeletion or null; error `delete/unknown` | Any connection |
-| `sessionDeleteAbandon` | `sessionId` | bool | Any connection |
-| `sessionDeletions` | — | SessionDeletion[] | Any connection |
 | `markRead` | `sessionId, version?` | null | Any connection. `version`: the state the reader saw; an older confirmation does not clear a newer `done`. Omitted = confirm whatever is current |
 | `setSessionTitle` | `sessionId, title` | null | Any connection |
 | `sessionLifecycle` | `sessionId` | Array of frames | Any connection |
