@@ -174,6 +174,12 @@ export type Session = {
    */
   appliedThrough: number
   /**
+   * Within the record line `appliedThrough`, the index of the last frame applied (`_meta.alwith.frame`); -1 when the
+   * line's frames are not numbered or nothing has been applied. After a replay's `cut` it is the largest number: every
+   * frame of that line is in.
+   */
+  appliedFrame: number
+  /**
    * The agent's config revision for this session (`_meta.alwith.configRevision` on `config_option_update` and on the
    * session responses): one more every time the options change. A prompt binds to it so a write that landed between
    * what the user saw and what they sent is refused by the agent instead of silently applying. null until the agent said.
@@ -204,6 +210,7 @@ export function createSession(id: string, cwd: string, title: string | null = nu
     updatedAt: null,
     _meta: null,
     appliedThrough: -1,
+    appliedFrame: -1,
     configRevision: null
   }
 }
@@ -212,6 +219,29 @@ export function createSession(id: string, cwd: string, title: string | null = nu
 export function recordSeqOf(update: acp.SessionUpdate): number | null {
   const alwith = (update as { _meta?: { alwith?: { seq?: unknown } } | null })._meta?.alwith
   return typeof alwith?.seq === "number" ? alwith.seq : null
+}
+
+/** Where a frame sits in the forwarding chain; see `SessionStore.accept`. */
+export interface RecordLink {
+  seq: number
+  /** The record line forwarded before this one; the replay cursor `after` for a replay's first frame. */
+  prevSeq: number
+  /** This frame's index within its line. */
+  frame: number
+}
+
+/**
+ * The link an agent put on a persisted frame (`_meta.alwith.seq` / `prevSeq` / `frame`, alwith-cli 2.9.79). Record
+ * seqs are not contiguous as seen by a client (the record holds lines that are never forwarded), so a gap is judged by
+ * the link, not by arithmetic: a frame whose `prevSeq` is past what the session applied skipped something. null when the
+ * frame is unlinked (transient chunks, older agents).
+ */
+export function recordLinkOf(update: acp.SessionUpdate): RecordLink | null {
+  const alwith = (update as { _meta?: { alwith?: { seq?: unknown; prevSeq?: unknown; frame?: unknown } } | null })._meta
+    ?.alwith
+  return typeof alwith?.seq === "number" && typeof alwith.prevSeq === "number" && typeof alwith.frame === "number"
+    ? { seq: alwith.seq, prevSeq: alwith.prevSeq, frame: alwith.frame }
+    : null
 }
 
 function meta(value: unknown): Record<string, unknown> | null {
