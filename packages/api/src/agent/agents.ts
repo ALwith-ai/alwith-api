@@ -196,9 +196,10 @@ export class Agent {
 
   /**
    * Sends an ACP request and waits for the agent's reply (the Runtime pairs the response by id).
-   * `signal` abort = cancel this request: sends `$/cancel_request` per the spec (the agent MAY cancel and MUST answer the original request with -32800
-   * or a valid response), and fails locally at once with `RequestCancelledError` without waiting for the agent to cooperate. Every request picks its own id
-   * and passes it to the Runtime, so there is always an id to refer to when cancelling, whether by the caller's signal or by `detach`.
+   * `signal` abort = the user's own cancellation of this request: sends `$/cancel_request` per the spec (the agent MAY cancel and MUST answer the
+   * original request with -32800 or a valid response), and fails locally at once with `RequestCancelledError` without waiting for the agent to cooperate.
+   * Every request picks its own id and passes it to the Runtime: the id is what a cancellation refers to, and what the Runtime books the request under
+   * for this holder.
    */
   request<T = unknown>(method: string, params?: unknown, options?: { signal?: AbortSignal }): Promise<T> {
     const signal = options?.signal
@@ -273,18 +274,16 @@ export class Agent {
   }
 
   /**
-   * Let go: drop subscriptions, fail in-flight requests, and leave the process in the Runtime for the next taker (cross-window handoff).
-   * The requests this holder abandons are retracted with `$/cancel_request` (the agent MAY stop the work and MUST still answer, which the Runtime
-   * discards). A `session/prompt` is not abandoned: the turn belongs to the session and goes on for the next holder; only `session/cancel` ends it.
+   * Let go: drop subscriptions, fail in-flight requests locally, and leave the process in the Runtime for the next taker (cross-window handoff).
+   * Letting go only ends this holder's waiting; it is not a cancellation on the wire. The agent's counterpart is the Runtime, and only the Runtime
+   * knows whether a request still has a taker: on handoff it transfers the in-flight requests to the new holder, and when a holder is gone for good it
+   * retracts the ones nobody will collect. A window cannot tell those two apart, so it never sends `$/cancel_request` on its own behalf here.
    */
   detach(): void {
     if (!this._alive) return
     this._alive = false
     this.unlisten?.()
     this.unlisten = null
-    for (const [id, { method }] of this.inflight) {
-      if (method !== "session/prompt") void this.notify("$/cancel_request", { requestId: id })
-    }
     this.failInflight(new AgentGoneError(this.agentId, "agent detached"))
   }
 

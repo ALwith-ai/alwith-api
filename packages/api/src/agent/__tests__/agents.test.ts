@@ -304,7 +304,7 @@ describe("handshake", () => {
 })
 
 describe("abandoned requests", () => {
-  test("detach retracts this holder's in-flight requests with $/cancel_request, except a prompt, whose turn goes on for the next holder", async () => {
+  test("detach only ends this holder's waiting: nothing is cancelled on the wire, the Runtime decides whether the next holder collects or the request is retracted", async () => {
     const { runtime, agents } = make()
     const agent = await agents.start("a1", { engine: "alwith" })
     runtime.hang.add("session/list")
@@ -314,8 +314,21 @@ describe("abandoned requests", () => {
     agent.detach()
     await expect(list).rejects.toBeInstanceOf(AgentGoneError)
     await expect(prompt).rejects.toBeInstanceOf(AgentGoneError)
-    expect(runtime.notified.map(n => n.method)).toEqual(["$/cancel_request"])
-    expect(String((runtime.notified[0]?.params as { requestId: string }).requestId)).toMatch(/-1$/)
+    expect(runtime.notified).toEqual([])
     expect(runtime.running.has("a1")).toBe(true)
+  })
+
+  test("every request carries its own id, so the Runtime can book it under this holder and a cancellation has something to name", async () => {
+    const { runtime, agents } = make()
+    const agent = await agents.start("a1", { engine: "alwith" })
+    const seen: unknown[] = []
+    runtime.acpRequest = (async (_agentId: string, _method: string, _params?: unknown, options?: { id?: unknown }) => {
+      seen.push(options?.id)
+      return {}
+    }) as typeof runtime.acpRequest
+    await agent.request("session/list", {})
+    await agent.request("session/list", {})
+    expect(seen.map(id => typeof id)).toEqual(["string", "string"])
+    expect(seen[0]).not.toBe(seen[1])
   })
 })
