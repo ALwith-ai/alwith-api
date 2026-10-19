@@ -12,7 +12,7 @@ export {
   terminalOf
 } from "./session"
 export { replayCursorFor, replayIdOf, replayReceiptOf, SEQ_CURSOR, supportsSeqCursor } from "./replay"
-export type { ReplayReceipt } from "./replay"
+export type { ReplayCursor, ReplayReceipt } from "./replay"
 export type {
   ApplyOptions,
   CompactionItem,

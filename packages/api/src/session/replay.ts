@@ -6,6 +6,9 @@ import type { Session } from "./session"
 
 export const SEQ_CURSOR = "_alwith/seq"
 
+/** Where a resume replays from: the start, or after a record position. Assignable to `ResumeSessionRequest["replayFrom"]`. */
+export type ReplayCursor = { type: "start" } | { type: typeof SEQ_CURSOR; after: number }
+
 /** What the agent answers on `session/resume` (`_meta.alwith.replay`) when it replayed. */
 export type ReplayReceipt = { replayId: string; after: number; cut: number }
 
@@ -19,12 +22,9 @@ export function supportsSeqCursor(initialized: acp.InitializeResponse): boolean 
  * The cursor to resume this session with: from where it has the record (`after: appliedThrough`) when the agent can and
  * the session holds anything, otherwise from the start. A session that holds nothing has nothing to continue from.
  */
-export function replayCursorFor(
-  initialized: acp.InitializeResponse,
-  session: Session
-): acp.ResumeSessionRequest["replayFrom"] {
+export function replayCursorFor(initialized: acp.InitializeResponse, session: Session): ReplayCursor {
   return supportsSeqCursor(initialized) && session.items.length > 0 && session.appliedThrough >= 0
-    ? ({ type: SEQ_CURSOR, after: session.appliedThrough } as unknown as acp.ResumeSessionRequest["replayFrom"])
+    ? { type: SEQ_CURSOR, after: session.appliedThrough }
     : { type: "start" }
 }
 
