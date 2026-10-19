@@ -76,7 +76,7 @@ export type Terminal = {
  * remain separate so clients can present the error without interpreting an engine dialect.
  */
 export type TurnError = {
-  /** Standard failure/limit reason, or a legacy implementation-specific `_error`. */
+  /** Standard failure/limit reason, a legacy implementation-specific `_error`, or `DISCONNECTED`, which this library synthesizes. */
   stopReason: string
   error: acp.Error | null
   /** The idle frame's `_meta`, as-is. */
@@ -738,5 +738,23 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
       }
     default:
       return session
+  }
+}
+
+/** `TurnError.stopReason` when the connection to the agent was lost while a turn was running; the protocol has no reason for it. */
+export const DISCONNECTED = "disconnected"
+
+/**
+ * The connection to the agent is gone. A turn that was running there may still be running, but its outcome can no longer reach this
+ * session, so it stops showing as running and the turn records why. A later `session/resume` replaces this with what the agent recorded.
+ */
+export function markDisconnected(session: Session): Session {
+  return {
+    ...session,
+    attached: false,
+    restoring: false,
+    readOnly: false,
+    state: "idle",
+    error: session.state === "running" ? { stopReason: DISCONNECTED, error: null, meta: null } : session.error
   }
 }

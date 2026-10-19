@@ -3,7 +3,9 @@ export {
   addPrompt,
   applyUpdate,
   createSession,
+  DISCONNECTED,
   INTERRUPTED,
+  markDisconnected,
   markInterrupted,
   patchMeta,
   terminalOf

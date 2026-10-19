@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { isText, textOf } from "../blocks"
-import { addPrompt, applyUpdate, createSession, terminalOf } from "../session"
+import { addPrompt, applyUpdate, createSession, DISCONNECTED, markDisconnected, terminalOf } from "../session"
 import { SessionStore } from "../store"
 
 function text(session: ReturnType<typeof createSession>, index = 0): string {
@@ -309,5 +309,19 @@ describe("ACP alpha.8", () => {
       summary: null
     })
     expect(session.items[0]).toMatchObject({ summary: [] })
+  })
+})
+
+describe("markDisconnected", () => {
+  test("a running turn is recorded as disconnected; an idle session only loses its attachment", () => {
+    let session = createSession("s", "/tmp")
+    session = applyUpdate(session, { sessionUpdate: "state_update", state: "running" } as never)
+    const lost = markDisconnected(session)
+    expect(lost.state).toBe("idle")
+    expect(lost.attached).toBe(false)
+    expect(lost.error).toEqual({ stopReason: DISCONNECTED, error: null, meta: null })
+    const idle = markDisconnected({ ...createSession("t", "/tmp"), attached: true })
+    expect(idle.error).toBeNull()
+    expect(idle.attached).toBe(false)
   })
 })
