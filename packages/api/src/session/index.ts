@@ -5,6 +5,7 @@ export {
   createSession,
   INTERRUPTED,
   markInterrupted,
+  patchMeta,
   terminalOf
 } from "./session"
 export type {

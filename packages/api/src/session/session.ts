@@ -14,9 +14,10 @@ type ItemBase = {
   /** Arrived through history replay rather than live streaming. */
   replayed: boolean
   /**
-   * Each engine's dialect, kept as-is for the app to read. Multiple frames for the same item are merged layer by layer, later keys overriding earlier ones,
-   * because engines spread item-level facts across different frames (alwith-cli's background marker comes on the second frame, the uuid on the last),
-   * and replacing per frame would wash out the facts that arrived first.
+   * Each engine's dialect, kept as-is for the app to read. Later frames patch it the way ACP v2 specifies for every
+   * entity's `_meta`: omitted leaves it unchanged, `null` clears it, and an object patches it by top-level key (an omitted
+   * key is unchanged, a key set to `null` is removed, any other value replaces that key's stored value whole, without merging
+   * nested objects). Agents therefore send each top-level key complete; see `patchMeta`.
    */
   _meta: Record<string, unknown> | null
 }
@@ -66,6 +67,8 @@ export type Terminal = {
   cwd: string | null
   output: string
   exitStatus: acp.TerminalExitStatus | null
+  /** Patched like `ItemBase._meta`; `terminal_output_chunk` metadata is chunk-scoped and only ever adds. */
+  _meta: Record<string, unknown> | null
 }
 
 /**
@@ -161,6 +164,8 @@ export type Session = {
   commands: acp.AvailableCommand[]
   terminals: Record<string, Terminal>
   updatedAt: string | null
+  /** The session's own metadata from `session_info_update`, patched like `ItemBase._meta`. */
+  _meta: Record<string, unknown> | null
 }
 
 export function createSession(id: string, cwd: string, title: string | null = null): Session {
@@ -183,7 +188,8 @@ export function createSession(id: string, cwd: string, title: string | null = nu
     lastStopReason: null,
     commands: [],
     terminals: {},
-    updatedAt: null
+    updatedAt: null,
+    _meta: null
   }
 }
 
@@ -197,17 +203,26 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
-/** See `ItemBase._meta`: merged layer by layer, later keys overriding earlier ones; arrays and scalars are replaced wholesale. */
-function mergeMeta(previous: Record<string, unknown> | null, incoming: unknown): Record<string, unknown> | null {
-  const next = meta(incoming)
-  if (next === null) return previous
-  if (previous === null) return next
-  const merged: Record<string, unknown> = { ...previous }
-  for (const [key, value] of Object.entries(next)) {
-    const before = merged[key]
-    merged[key] = isPlainObject(before) && isPlainObject(value) ? mergeMeta(before, value) : value
+/**
+ * ACP v2's `_meta` patch (see `ItemBase._meta`): `undefined` leaves `previous` unchanged, `null` clears it, an object
+ * patches by top-level key (`null` removes the key, any other value replaces it whole). An empty result is `null`.
+ */
+export function patchMeta(previous: Record<string, unknown> | null, incoming: unknown): Record<string, unknown> | null {
+  if (incoming === undefined) return previous
+  if (incoming === null) return null
+  const patch = meta(incoming)
+  if (patch === null) return previous
+  const patched: Record<string, unknown> = { ...previous }
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null) delete patched[key]
+    else patched[key] = value
   }
-  return merged
+  return Object.keys(patched).length === 0 ? null : patched
+}
+
+/** Chunk metadata is chunk-scoped: it can add to the entity's metadata but a chunk's `null` never clears it. */
+function patchChunkMeta(previous: Record<string, unknown> | null, incoming: unknown): Record<string, unknown> | null {
+  return incoming === null ? previous : patchMeta(previous, incoming)
 }
 
 /** The next timestamp: wall clock, but never equal to or before the previous one (see `Session.clock`). */
@@ -397,7 +412,7 @@ export function acknowledgePrompt(session: Session, localId: string, messageId: 
     ...local,
     id: messageId,
     echo: remote === undefined ? "acknowledged" : "adopted",
-    _meta: mergeMeta(local._meta, remote === undefined ? null : remote._meta)
+    _meta: patchMeta(local._meta, remote === undefined ? undefined : remote._meta)
   }
   const items =
     remote === undefined
@@ -458,7 +473,7 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
             {
               ...acknowledged,
               echo: "adopted",
-              _meta: !isChunk && frame._meta === null ? null : mergeMeta(acknowledged._meta, frame._meta)
+              _meta: isChunk ? patchChunkMeta(acknowledged._meta, frame._meta) : patchMeta(acknowledged._meta, frame._meta)
             }
           ]
         }
@@ -471,7 +486,7 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
       base => ({ ...base, kind: messageKind, content: [], echo: null }),
       item =>
         item.echo === "adopted"
-          ? { ...item, _meta: !isChunk && frame._meta === null ? null : mergeMeta(item._meta, frame._meta) }
+          ? { ...item, _meta: isChunk ? patchChunkMeta(item._meta, frame._meta) : patchMeta(item._meta, frame._meta) }
           : {
               ...item,
               content: isChunk
@@ -481,7 +496,7 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
                   : frame.content === null
                     ? []
                     : frame.content.slice(),
-              _meta: !isChunk && frame._meta === null ? null : mergeMeta(item._meta, frame._meta)
+              _meta: isChunk ? patchChunkMeta(item._meta, frame._meta) : patchMeta(item._meta, frame._meta)
             }
     )
   }
@@ -563,7 +578,7 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
             locations: frame.locations === undefined ? item.locations : (frame.locations ?? []),
             rawInput: frame.rawInput === undefined ? item.rawInput : frame.rawInput,
             rawOutput: frame.rawOutput === undefined ? item.rawOutput : frame.rawOutput,
-            _meta: frame._meta === null ? null : mergeMeta(item._meta, frame._meta)
+            _meta: patchMeta(item._meta, frame._meta)
           }
           if (frame.status === undefined || frame.status === null) return patched
           // A tool that declared itself outliving the turn takes its status only from a frame that also declared it (see FoldPolicy.outlivesTurn).
@@ -609,7 +624,8 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
         command: null,
         cwd: null,
         output: "",
-        exitStatus: null
+        exitStatus: null,
+        _meta: null
       }
       return {
         ...session,
@@ -620,7 +636,8 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
             command: frame.command === undefined ? current.command : frame.command,
             cwd: frame.cwd === undefined ? current.cwd : frame.cwd,
             output: decodedTerminalText === undefined ? current.output : decodedTerminalText,
-            exitStatus: frame.exitStatus === undefined ? current.exitStatus : frame.exitStatus
+            exitStatus: frame.exitStatus === undefined ? current.exitStatus : frame.exitStatus,
+            _meta: patchMeta(current._meta, frame._meta)
           }
         }
       }
@@ -632,7 +649,8 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
         command: null,
         cwd: null,
         output: "",
-        exitStatus: null
+        exitStatus: null,
+        _meta: null
       }
       return {
         ...session,
@@ -640,7 +658,8 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
           ...session.terminals,
           [frame.terminalId]: {
             ...current,
-            output: current.output + (decodedTerminalText ?? "")
+            output: current.output + (decodedTerminalText ?? ""),
+            _meta: patchChunkMeta(current._meta, frame._meta)
           }
         }
       }
@@ -652,7 +671,7 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
         "plan",
         frame.plan.planId,
         base => ({ ...base, kind: "plan", plan: frame.plan }),
-        item => ({ ...item, plan: frame.plan, _meta: mergeMeta(item._meta, frame._meta) })
+        item => ({ ...item, plan: frame.plan, _meta: patchMeta(item._meta, frame._meta) })
       )
     }
     case "plan_removed": {
@@ -680,7 +699,7 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
           status: frame.status,
           summary: frame.summary === undefined ? item.summary : frame.summary === null ? [] : frame.summary.slice(),
           error: frame.error === undefined ? item.error : frame.error,
-          _meta: frame._meta === null ? null : mergeMeta(item._meta, frame._meta)
+          _meta: patchMeta(item._meta, frame._meta)
         })
       )
     }
@@ -691,7 +710,7 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
         "compaction",
         frame.compactionId,
         base => ({ ...base, kind: "compaction", status: "in_progress", summary: [], error: null }),
-        item => ({ ...item, summary: [...item.summary, frame.content], _meta: mergeMeta(item._meta, frame._meta) })
+        item => ({ ...item, summary: [...item.summary, frame.content], _meta: patchChunkMeta(item._meta, frame._meta) })
       )
     }
     case "config_option_update":
@@ -704,7 +723,8 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
       return {
         ...session,
         title: frame.title === undefined ? session.title : frame.title,
-        updatedAt: frame.updatedAt === undefined ? session.updatedAt : frame.updatedAt
+        updatedAt: frame.updatedAt === undefined ? session.updatedAt : frame.updatedAt,
+        _meta: patchMeta(session._meta, frame._meta)
       }
     }
     case "usage_update":

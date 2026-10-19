@@ -12,7 +12,7 @@
     "format:all": "bun run format:rust && bun run format"
   },
   "devDependencies": {
-    "@agentclientprotocol/sdk": "1.8.0",
+    "@agentclientprotocol/sdk": "1.9.0",
     "@tauri-apps/api": "^2",
     "@types/bun": "^1",
     "@types/node": "^24",

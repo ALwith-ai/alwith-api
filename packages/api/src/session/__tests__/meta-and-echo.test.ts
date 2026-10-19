@@ -12,8 +12,8 @@ function item<T extends MessageItem | ToolItem>(session: ReturnType<typeof creat
   return found as T
 }
 
-describe("_meta accumulates across frames", () => {
-  test("_meta from several frames of one item merges layer by layer, later keys overriding earlier ones; engines spread item-level facts across frames", () => {
+describe("_meta follows the ACP v2 patch rule", () => {
+  test("an object patches by top-level key: an omitted key is unchanged, a present key is replaced whole, nested objects are not merged", () => {
     let session = createSession("s", "/tmp")
     session = apply(session, {
       sessionUpdate: "tool_call_update",
@@ -28,14 +28,33 @@ describe("_meta accumulates across frames", () => {
       _meta: { alwith: { terminalDisplay: { command: "sleep 5" } } }
     })
     expect(item<ToolItem>(session, "t")._meta).toEqual({
-      alwith: { runInBackground: true, terminalDisplay: { command: "sleep 5" } },
+      alwith: { terminalDisplay: { command: "sleep 5" } },
       claudeCode: { toolName: "Bash" }
     })
   })
 
-  test("message chunks accumulate the same way: uuid on the last frame, model on the first, both kept", () => {
+  test("a key set to null is removed; omitted _meta keeps everything; a whole null clears everything", () => {
     let session = createSession("s", "/tmp")
-    const chunk = (text: string, _meta: Record<string, unknown>) =>
+    session = apply(session, {
+      sessionUpdate: "tool_call_update",
+      toolCallId: "t",
+      name: "Read",
+      _meta: { alwith: { tags: ["a"], n: 1 }, claudeCode: { toolName: "Read" } }
+    })
+    session = apply(session, { sessionUpdate: "tool_call_update", toolCallId: "t", status: "in_progress" })
+    expect(item<ToolItem>(session, "t")._meta).toEqual({ alwith: { tags: ["a"], n: 1 }, claudeCode: { toolName: "Read" } })
+    session = apply(session, { sessionUpdate: "tool_call_update", toolCallId: "t", _meta: { claudeCode: null } })
+    expect(item<ToolItem>(session, "t")._meta).toEqual({ alwith: { tags: ["a"], n: 1 } })
+    session = apply(session, { sessionUpdate: "tool_call_update", toolCallId: "t", _meta: { alwith: null } })
+    expect(item<ToolItem>(session, "t")._meta).toBeNull()
+    session = apply(session, { sessionUpdate: "tool_call_update", toolCallId: "t", _meta: { alwith: { n: 2 } } })
+    session = apply(session, { sessionUpdate: "tool_call_update", toolCallId: "t", _meta: null })
+    expect(item<ToolItem>(session, "t")._meta).toBeNull()
+  })
+
+  test("message chunks patch the message's metadata too, so an agent sends each top-level key complete on every chunk", () => {
+    let session = createSession("s", "/tmp")
+    const chunk = (text: string, _meta: unknown) =>
       apply(session, {
         sessionUpdate: "agent_message_chunk",
         messageId: "m",
@@ -43,28 +62,13 @@ describe("_meta accumulates across frames", () => {
         _meta
       })
     session = chunk("你", { alwith: { model: "opus" } })
-    session = chunk("好", { alwith: { uuid: "u-1" } })
+    session = chunk("好", { alwith: { model: "opus", uuid: "u-1" } })
     expect(item<MessageItem>(session, "m")._meta).toEqual({ alwith: { model: "opus", uuid: "u-1" } })
-  })
-
-  test("tool metadata: omitted keeps, explicit null clears; scalars and arrays are replaced whole", () => {
-    let session = createSession("s", "/tmp")
-    session = apply(session, {
-      sessionUpdate: "tool_call_update",
-      toolCallId: "t",
-      name: "Read",
-      _meta: { alwith: { tags: ["a"], n: 1 } }
-    })
-    session = apply(session, { sessionUpdate: "tool_call_update", toolCallId: "t", status: "in_progress" })
-    expect(item<ToolItem>(session, "t")._meta).toEqual({ alwith: { tags: ["a"], n: 1 } })
-    session = apply(session, { sessionUpdate: "tool_call_update", toolCallId: "t", _meta: null })
-    expect(item<ToolItem>(session, "t")._meta).toBeNull()
-    session = apply(session, {
-      sessionUpdate: "tool_call_update",
-      toolCallId: "t",
-      _meta: { alwith: { tags: ["b"], n: 2 } }
-    })
-    expect(item<ToolItem>(session, "t")._meta).toEqual({ alwith: { tags: ["b"], n: 2 } })
+    // Chunk metadata is chunk-scoped: a chunk's null never clears what the message has.
+    session = chunk("！", null)
+    expect(item<MessageItem>(session, "m")._meta).toEqual({ alwith: { model: "opus", uuid: "u-1" } })
+    session = apply(session, { sessionUpdate: "agent_message", messageId: "m", _meta: null })
+    expect(item<MessageItem>(session, "m")._meta).toBeNull()
   })
 
   test("plan and compaction items carry _meta too; alwith-cli puts the persisted timestamps and compact_metadata there", () => {
@@ -78,6 +82,21 @@ describe("_meta accumulates across frames", () => {
     expect(item(session, "c")._meta).toEqual({
       alwith: { timestamp: "2026-09-14T00:00:00Z", compactMetadata: { pre_tokens: 120000 } }
     })
+    session = apply(session, { sessionUpdate: "plan_update", plan: { planId: "p", entries: [] }, _meta: { codex: { a: 1 } } })
+    session = apply(session, { sessionUpdate: "plan_update", plan: { planId: "p", entries: [] }, _meta: null })
+    expect(item(session, "p")._meta).toBeNull()
+  })
+
+  test("terminals and the session keep their own _meta under the same rule", () => {
+    let session = createSession("s", "/tmp")
+    session = apply(session, { sessionUpdate: "terminal_update", terminalId: "term", command: "ls", _meta: { codex: { a: 1 } } })
+    session = apply(session, { sessionUpdate: "terminal_output_chunk", terminalId: "term", data: "", _meta: null })
+    session = apply(session, { sessionUpdate: "terminal_update", terminalId: "term", _meta: { codex: { reconciled: true } } })
+    expect(session.terminals.term?._meta).toEqual({ codex: { reconciled: true } })
+    session = apply(session, { sessionUpdate: "session_info_update", _meta: { codex: { readState: { firstUnread: null, revision: "r1" } } } })
+    session = apply(session, { sessionUpdate: "session_info_update", title: "T" })
+    expect(session._meta).toEqual({ codex: { readState: { firstUnread: null, revision: "r1" } } })
+    expect(session.title).toBe("T")
   })
 })
 
