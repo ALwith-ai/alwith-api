@@ -394,6 +394,32 @@ window that changed its mind can withdraw before the Runtime ever heard from it
 - Intent and stage are persisted (`deleting.json`, see §2.3): a Runtime that restarts mid-deletion resumes at
   `unlinking` and keeps refusing claims until the deletion ends or is abandoned.
 
+### 6.3.3 Replacing the process under a claim
+
+Switching the engine or provider of a live session is a **replacement transaction** on its claim, not a stop
+followed by a start that races everything in between (`docs/plans/2026-10-19-session-lifecycle.md` 2.4).
+
+```json
+{"id": 12, "method": "replaceBegin",  "params": {"claimToken": "a1f3.4", "replacementId": "rep-1", "inputDigest": "sha256:…"}}
+→ {"id": 12, "result": {"replacementId":"rep-1","sessionId":"s-1","claimToken":"a1f3.4","stage":{"stage":"prepared"}}}
+{"id": 13, "method": "replaceCommit", "params": {"replacementId": "rep-1"}}
+→ {"id": 13, "result": {…, "stage":{"stage":"stopped"}}}
+```
+
+- `replaceBegin`: records the intent; idempotent on `replacementId`, refused under a different `inputDigest`
+  (`replace/digest_mismatch`); the old claim is untouched, so a failure here costs nothing.
+- `replaceCommit`: the point of no return. The claim enters `replacing`, the old process is stopped and waited for
+  (its late frames publish nothing), and the answer is `stopped`. Re-asked after a lost answer, it reports the
+  current stage. Then `start` the new process under your own name and `session/resume` the session: the moment it
+  appears on that process the replacement is `published` with a **successor claim** -- a new `claimToken` and
+  `agentInstanceId` for the same `(callerInstanceId, attemptId)`; the old token is retired as `replaced` and cannot
+  be revived.
+- `replaceStatus {replacementId}` → SessionReplacement or null.
+- `replaceAbort {replacementId, target}`: before commit, only the intent goes; after commit and before publish,
+  nothing runs the session and the claim retires as `target`, leaving the session claimable; after publish, the
+  successor is released or stopped per `target`. A claim taken over by a later claimant answers `replace/transferred`
+  and the successor's life is not touched.
+
 ### 6.4 History
 
 Every session's ACP frames are recorded in the journal (16MB per session by default; when exceeded the earliest are dropped), numbered monotonically by `sequence`:
@@ -524,6 +550,10 @@ You can also skip the client: anything that can open a WebSocket and read and wr
 | `sessionDeleteEnd` | `sessionId, outcome, actualResourceState?` | SessionDeletion or null; error `delete/unknown` | Any connection |
 | `sessionDeleteAbandon` | `sessionId` | bool | Any connection |
 | `sessionDeletions` | — | SessionDeletion[] | Any connection |
+| `replaceBegin` | `claimToken, replacementId, inputDigest, owner?` | SessionReplacement (§6.3.3); errors `claim/unknown`, `claim/not_holder`, `claim/not_active`, `replace/digest_mismatch` | Holder |
+| `replaceCommit` | `replacementId, owner?` | SessionReplacement at `stopped` (or the current stage); error `replace/transferred` | Holder |
+| `replaceStatus` | `replacementId` | SessionReplacement or null | Any connection |
+| `replaceAbort` | `replacementId, target, owner?` | SessionReplacement; error `replace/transferred` | Holder |
 | `markRead` | `sessionId, version?` | null | Any connection. `version`: the state the reader saw; an older confirmation does not clear a newer `done`. Omitted = confirm whatever is current |
 | `setSessionTitle` | `sessionId, title` | null | Any connection |
 | `sessionLifecycle` | `sessionId` | Array of frames | Any connection |

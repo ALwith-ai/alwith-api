@@ -89,7 +89,7 @@ export interface RuntimeAttachInfo {
 }
 
 /** How a claim ended when it neither failed nor was aborted. */
-export type ClaimRetirement = "released" | "stopped" | "transferred" | "deleted"
+export type ClaimRetirement = "released" | "stopped" | "transferred" | "deleted" | "replaced"
 
 /** Where a claim stands. `reserved`: no live process ran the session; the claimant starts one and
  *  resumes the session, and the claim turns `active` when the session appears on that claimant's
@@ -97,6 +97,9 @@ export type ClaimRetirement = "released" | "stopped" | "transferred" | "deleted"
 export type ClaimPhase =
   | { phase: "reserved" }
   | { phase: "active"; agentId: string; agentInstanceId: string }
+  /** `replaceCommit` passed: the old process is being stopped or is gone; the claim turns active
+   *  again under a new token when the holder's new agent resumes the session. */
+  | { phase: "replacing"; replacementId: string }
   | { phase: "retired"; how: ClaimRetirement }
   | { phase: "failed"; reason: string }
   | { phase: "aborted" }
@@ -132,6 +135,24 @@ export interface SessionDeletion {
 }
 
 export type DeletionOutcome = { outcome: "deleted" } | { outcome: "failed"; actualResourceState: string }
+
+/** Where a replacement stands (`docs/plans/2026-10-19-session-lifecycle.md` 2.4). `prepared`: the
+ *  intent is recorded, the old claim untouched. `stopped`: committed, the old process is gone, the
+ *  holder starts the new one. `published`: the new process runs the session under `claim`. */
+export type ReplacementStage =
+  | { stage: "prepared" }
+  | { stage: "stopped" }
+  | { stage: "published"; claim: ClaimStatus }
+  | { stage: "aborted" }
+  | { stage: "transferred" }
+
+export interface SessionReplacement {
+  replacementId: string
+  sessionId: string
+  /** The claim being replaced. */
+  claimToken: string
+  stage: ReplacementStage
+}
 
 export interface RuntimeInboundPayload {
   agentId: string

@@ -22,6 +22,7 @@ import type {
   SessionDeletion,
   SessionEventFrame,
   SessionLifecycleFrame,
+  SessionReplacement,
   SessionRunState
 } from "./types"
 
@@ -178,6 +179,22 @@ export abstract class FrameRuntimeClient<Launch = unknown> implements RuntimeCli
 
   sessionDeletions(): Promise<SessionDeletion[]> {
     return this.request("sessionDeletions", {})
+  }
+
+  replaceBegin(claimToken: string, replacementId: string, inputDigest: string): Promise<SessionReplacement> {
+    return this.request("replaceBegin", { claimToken, replacementId, inputDigest })
+  }
+
+  replaceCommit(replacementId: string): Promise<SessionReplacement> {
+    return this.request("replaceCommit", { replacementId })
+  }
+
+  replaceStatus(replacementId: string): Promise<SessionReplacement | null> {
+    return this.request("replaceStatus", { replacementId })
+  }
+
+  replaceAbort(replacementId: string, target: ClaimTarget): Promise<SessionReplacement> {
+    return this.request("replaceAbort", { replacementId, target })
   }
 
   async setSessionTitle(sessionId: string, title: string): Promise<void> {

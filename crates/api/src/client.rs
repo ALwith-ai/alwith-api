@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::{
     AttachInfo, ClaimOutcome, ClaimStatus, ClaimTarget, DeletionOutcome, ResponseError, RuntimeEvent, SessionDeletion,
-    SessionEventFrame, SessionLifecycleFrame, SessionRunState,
+    SessionEventFrame, SessionLifecycleFrame, SessionReplacement, SessionRunState,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -561,6 +561,34 @@ impl RuntimeClient {
 
     pub async fn session_deletions(&self) -> Result<Vec<SessionDeletion>, ResponseError> {
         self.typed("sessionDeletions", None).await
+    }
+
+    /// Replacement transaction (2.4): record the intent under a live claim.
+    pub async fn replace_begin(
+        &self, claim_token: &str, replacement_id: &str, input_digest: &str, owner: Option<&str>,
+    ) -> Result<SessionReplacement, ResponseError> {
+        let params = Self::with_owner(
+            serde_json::json!({ "claimToken": claim_token, "replacementId": replacement_id, "inputDigest": input_digest }),
+            owner,
+        );
+        self.typed("replaceBegin", Some(params)).await
+    }
+
+    /// The point of no return: stops and waits for the old process; answers at `stopped`.
+    pub async fn replace_commit(&self, replacement_id: &str, owner: Option<&str>) -> Result<SessionReplacement, ResponseError> {
+        let params = Self::with_owner(serde_json::json!({ "replacementId": replacement_id }), owner);
+        self.typed("replaceCommit", Some(params)).await
+    }
+
+    pub async fn replace_status(&self, replacement_id: &str) -> Result<Option<SessionReplacement>, ResponseError> {
+        self.typed("replaceStatus", Some(serde_json::json!({ "replacementId": replacement_id }))).await
+    }
+
+    pub async fn replace_abort(
+        &self, replacement_id: &str, target: ClaimTarget, owner: Option<&str>,
+    ) -> Result<SessionReplacement, ResponseError> {
+        let params = Self::with_owner(serde_json::json!({ "replacementId": replacement_id, "target": target }), owner);
+        self.typed("replaceAbort", Some(params)).await
     }
 
     pub async fn detach_owner(&self, owner: &str) -> Result<(), ResponseError> {
