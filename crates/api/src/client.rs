@@ -519,8 +519,12 @@ impl RuntimeClient {
         self.request("setSlowMode", Some(serde_json::json!({ "delayMs": delay_ms }))).await.map(|_| ())
     }
 
-    pub async fn mark_read(&self, session_id: &str) -> Result<(), ResponseError> {
-        self.request("markRead", Some(serde_json::json!({ "sessionId": session_id }))).await.map(|_| ())
+    /// `version`: the state the reader saw; an older confirmation does not clear a newer `done`.
+    /// `None` confirms whatever is current.
+    pub async fn mark_read(&self, session_id: &str, version: Option<u64>) -> Result<(), ResponseError> {
+        self.request("markRead", Some(serde_json::json!({ "sessionId": session_id, "version": version })))
+            .await
+            .map(|_| ())
     }
 
     pub async fn set_session_title(&self, session_id: &str, title: &str) -> Result<(), ResponseError> {

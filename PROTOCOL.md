@@ -67,6 +67,7 @@ Missing either one gives 401. The subprotocol the server replies with is `alwith
 | `ALWITH_RUNTIME_TOKEN` | Required for ws | Handshake token |
 | `ALWITH_RUNTIME_ADDR` | No | Listen address when `--listen ws://` has no address, default `127.0.0.1:0` |
 | `ALWITH_RUNTIME_JOURNAL` | No | Session journal directory, default `alwith/runtime/sessions` under the platform cache directory |
+| `ALWITH_RUNTIME_ATTENTION` | No | Directory of `run-states.json` (the run states, kept across restarts) and `agents.json` (leases of the agent processes it started, reclaimed on the next start), default `alwith/Runtime` under the platform data directory |
 | `ALWITH_RUNTIME_PARENT_PID` | No | Parent process pid; the Runtime exits by itself when the parent is gone (unix) |
 | `ALWITH_MODULES_DIR` | No | Module directory (the application's `node_modules`), see §7 |
 
@@ -309,7 +310,8 @@ The Runtime infers each session's state from the traffic and broadcasts any chan
   "sessionId":"s-1","state":"running","reusableDraft":false,"owner":"stdio:main",
   "cwd":"/Users/me/project","title":"Fix login page","since":1757770000000,
   "tasks":[{"id":"t1","title":"Run tests","background":true,"since":1757770001000}],
-  "listeningPorts":[3000],"executionId":null,"executionRole":null,"lastActivityAt":1757770005000
+  "listeningPorts":[3000],"executionId":null,"executionRole":null,"lastActivityAt":1757770005000,
+  "version":4,"interruption":null
 }]}
 ```
 
@@ -318,6 +320,8 @@ The Runtime infers each session's state from the traffic and broadcasts any chan
 | `state` | `running` / `requires_action` / `idle` are values reported directly by ACP v2 `state_update`; `done` is synthesized by the Runtime to mean "finished but nobody has looked": it becomes `done` on running → idle, and only `markRead {sessionId}` can turn it back to `idle` |
 | `reusableDraft` | The session was created but no prompt has been sent yet |
 | `owner` | The owner (a historical field name; the value is the owner id) |
+| `version` | Monotonic per session: moves with every change the Runtime publishes, so a version names exactly one content. Survives a Runtime restart |
+| `interruption` | Why the Runtime holds the session in `requires_action` without the agent asking: `"runtime restarted"` when the session was `running` as the Runtime stopped (its turn was cut short). Cleared by the next state the agent reports; `null` otherwise. Run states survive a restart: `done` stays unread, `requires_action` stays, nothing is lowered to `idle` |
 | `cwd` / `title` | From the `params.cwd` of `session/new` and the like, and from the title in `session_info_update`; `setSessionTitle {sessionId,title}` can push a title from the application side |
 | `tasks` | Tool calls in `tool_call_update` whose `_meta.alwith.runInBackground` is true |
 | `listeningPorts` | TCP ports the agent's process tree is listening on (scanned every 2s), for hints like "it started a dev server" |
@@ -463,7 +467,7 @@ You can also skip the client: anything that can open a WebSocket and read and wr
 | `detachOwner` | `owner` | null | Any connection (affects only its own sub-owners) |
 | `releaseExecution` | `executionId` | bool | Any connection |
 | `agentForSession` | `sessionId` | agentId or null | Any connection |
-| `markRead` | `sessionId` | null | Any connection |
+| `markRead` | `sessionId, version?` | null | Any connection. `version`: the state the reader saw; an older confirmation does not clear a newer `done`. Omitted = confirm whatever is current |
 | `setSessionTitle` | `sessionId, title` | null | Any connection |
 | `sessionLifecycle` | `sessionId` | Array of frames | Any connection |
 | `sessionEvents` | `sessionId, afterSequence?, limit?` | Array of frames | Any connection |

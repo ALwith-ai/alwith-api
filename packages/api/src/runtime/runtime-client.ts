@@ -35,7 +35,9 @@ export interface RuntimeClient<Launch = unknown> {
   agentForSession(sessionId: string): Promise<string | null>
   releaseSession(sessionId: string): Promise<void>
   stopSession(sessionId: string): Promise<void>
-  markRead(sessionId: string): Promise<void>
+  /** `version`: the state the reader saw; an older confirmation does not clear a newer `done`.
+   *  `null` confirms whatever is current. */
+  markRead(sessionId: string, version: number | null): Promise<void>
   setSessionTitle(sessionId: string, title: string): Promise<void>
   sessionLifecycle(sessionId: string): Promise<SessionLifecycleFrame[]>
   /** Frames after `afterSequence` (exclusive); omit it to read from the start. */

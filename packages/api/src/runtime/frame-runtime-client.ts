@@ -134,8 +134,8 @@ export abstract class FrameRuntimeClient<Launch = unknown> implements RuntimeCli
     await this.request("stopSession", { sessionId })
   }
 
-  async markRead(sessionId: string): Promise<void> {
-    await this.request("markRead", { sessionId })
+  async markRead(sessionId: string, version: number | null): Promise<void> {
+    await this.request("markRead", { sessionId, version })
   }
 
   async setSessionTitle(sessionId: string, title: string): Promise<void> {
