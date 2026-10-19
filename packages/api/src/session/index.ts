@@ -12,6 +12,8 @@ export {
   recordSeqOf,
   terminalOf
 } from "./session"
+export { ConfigStaleError, configRevisionOf, configStaleOf, promptConfigMeta, supportsConfigRevision } from "./config"
+export type { ConfigStale } from "./config"
 export { replayCursorFor, replayIdOf, replayReceiptOf, SEQ_CURSOR, supportsSeqCursor } from "./replay"
 export type { ReplayCursor, ReplayReceipt } from "./replay"
 export type { InstanceTermination } from "./session"

@@ -2,6 +2,7 @@
 // Pure functions: no transport, no process, no knowledge of any UI framework. Each update returns a new Session object,
 // so the render layer can use reference equality to decide whether to redraw.
 import type * as acp from "@agentclientprotocol/sdk/experimental/v2"
+import { configRevisionOf } from "./config"
 import { IdleStateUpdate } from "@agentclientprotocol/sdk/experimental/v2"
 import { isText } from "./blocks"
 
@@ -172,6 +173,12 @@ export type Session = {
    * says. A resume asks for `after: appliedThrough`, so only what the record gained since is replayed.
    */
   appliedThrough: number
+  /**
+   * The agent's config revision for this session (`_meta.alwith.configRevision` on `config_option_update` and on the
+   * session responses): one more every time the options change. A prompt binds to it so a write that landed between
+   * what the user saw and what they sent is refused by the agent instead of silently applying. null until the agent said.
+   */
+  configRevision: number | null
 }
 
 export function createSession(id: string, cwd: string, title: string | null = null): Session {
@@ -196,7 +203,8 @@ export function createSession(id: string, cwd: string, title: string | null = nu
     terminals: {},
     updatedAt: null,
     _meta: null,
-    appliedThrough: -1
+    appliedThrough: -1,
+    configRevision: null
   }
 }
 
@@ -788,11 +796,14 @@ function fold(session: Session, update: acp.SessionUpdate, options: ApplyOptions
         item => ({ ...item, summary: [...item.summary, frame.content], _meta: patchChunkMeta(item._meta, frame._meta) })
       )
     }
-    case "config_option_update":
+    case "config_option_update": {
+      const revision = configRevisionOf(update as { _meta?: unknown })
       return {
         ...session,
-        configOptions: (update as acp.ConfigOptionUpdate).configOptions
+        configOptions: (update as acp.ConfigOptionUpdate).configOptions,
+        configRevision: revision === null ? session.configRevision : revision
       }
+    }
     case "session_info_update": {
       const frame = update as acp.SessionInfoUpdate
       return {
