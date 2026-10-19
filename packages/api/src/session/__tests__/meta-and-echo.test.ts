@@ -42,7 +42,10 @@ describe("_meta follows the ACP v2 patch rule", () => {
       _meta: { alwith: { tags: ["a"], n: 1 }, claudeCode: { toolName: "Read" } }
     })
     session = apply(session, { sessionUpdate: "tool_call_update", toolCallId: "t", status: "in_progress" })
-    expect(item<ToolItem>(session, "t")._meta).toEqual({ alwith: { tags: ["a"], n: 1 }, claudeCode: { toolName: "Read" } })
+    expect(item<ToolItem>(session, "t")._meta).toEqual({
+      alwith: { tags: ["a"], n: 1 },
+      claudeCode: { toolName: "Read" }
+    })
     session = apply(session, { sessionUpdate: "tool_call_update", toolCallId: "t", _meta: { claudeCode: null } })
     expect(item<ToolItem>(session, "t")._meta).toEqual({ alwith: { tags: ["a"], n: 1 } })
     session = apply(session, { sessionUpdate: "tool_call_update", toolCallId: "t", _meta: { alwith: null } })
@@ -82,18 +85,34 @@ describe("_meta follows the ACP v2 patch rule", () => {
     expect(item(session, "c")._meta).toEqual({
       alwith: { timestamp: "2026-09-14T00:00:00Z", compactMetadata: { pre_tokens: 120000 } }
     })
-    session = apply(session, { sessionUpdate: "plan_update", plan: { planId: "p", entries: [] }, _meta: { codex: { a: 1 } } })
+    session = apply(session, {
+      sessionUpdate: "plan_update",
+      plan: { planId: "p", entries: [] },
+      _meta: { codex: { a: 1 } }
+    })
     session = apply(session, { sessionUpdate: "plan_update", plan: { planId: "p", entries: [] }, _meta: null })
     expect(item(session, "p")._meta).toBeNull()
   })
 
   test("terminals and the session keep their own _meta under the same rule", () => {
     let session = createSession("s", "/tmp")
-    session = apply(session, { sessionUpdate: "terminal_update", terminalId: "term", command: "ls", _meta: { codex: { a: 1 } } })
+    session = apply(session, {
+      sessionUpdate: "terminal_update",
+      terminalId: "term",
+      command: "ls",
+      _meta: { codex: { a: 1 } }
+    })
     session = apply(session, { sessionUpdate: "terminal_output_chunk", terminalId: "term", data: "", _meta: null })
-    session = apply(session, { sessionUpdate: "terminal_update", terminalId: "term", _meta: { codex: { reconciled: true } } })
+    session = apply(session, {
+      sessionUpdate: "terminal_update",
+      terminalId: "term",
+      _meta: { codex: { reconciled: true } }
+    })
     expect(session.terminals.term?._meta).toEqual({ codex: { reconciled: true } })
-    session = apply(session, { sessionUpdate: "session_info_update", _meta: { codex: { readState: { firstUnread: null, revision: "r1" } } } })
+    session = apply(session, {
+      sessionUpdate: "session_info_update",
+      _meta: { codex: { readState: { firstUnread: null, revision: "r1" } } }
+    })
     session = apply(session, { sessionUpdate: "session_info_update", title: "T" })
     expect(session._meta).toEqual({ codex: { readState: { firstUnread: null, revision: "r1" } } })
     expect(session.title).toBe("T")

@@ -473,7 +473,9 @@ export function applyUpdate(session: Session, update: acp.SessionUpdate, options
             {
               ...acknowledged,
               echo: "adopted",
-              _meta: isChunk ? patchChunkMeta(acknowledged._meta, frame._meta) : patchMeta(acknowledged._meta, frame._meta)
+              _meta: isChunk
+                ? patchChunkMeta(acknowledged._meta, frame._meta)
+                : patchMeta(acknowledged._meta, frame._meta)
             }
           ]
         }

@@ -6,7 +6,11 @@
 // - swapping the engine = stop -> wait for exit -> start (one process per agentId at a time; the Runtime rejects concurrent starts);
 // - when the process exits / is stopped / is let go, requests still awaiting an answer fail immediately, so the caller's await never hangs;
 // - stop must wait for the exit event, otherwise the engine-switch resume would reattach to the old process.
+import type * as acp from "@agentclientprotocol/sdk/experimental/v2"
 import { type AgentRequest, REQUEST_CANCELLED } from "./requests"
+
+/** The only protocol version this library speaks. */
+export const PROTOCOL_VERSION = 2
 
 /** The minimum `attachSession` hands back: which agent, which engine, and the requests still unanswered. A port's own type may carry more (provider, ...). */
 export interface AttachInfo {
@@ -67,6 +71,40 @@ export class RequestCancelledError extends Error {
   }
 }
 
+/** The agent answered initialize with a protocol version this library cannot speak. Nothing after the handshake would be well-defined, so the agent is refused. */
+export class ProtocolVersionError extends Error {
+  readonly agentId: string
+  readonly protocolVersion: unknown
+  constructor(agentId: string, protocolVersion: unknown) {
+    super(
+      `agent ${agentId} answered initialize with protocolVersion ${JSON.stringify(protocolVersion)}; this client speaks ${PROTOCOL_VERSION} only`
+    )
+    this.name = "ProtocolVersionError"
+    this.agentId = agentId
+    this.protocolVersion = protocolVersion
+  }
+}
+
+/**
+ * The ACP handshake. The protocol lets an agent answer with a lower version than the one requested; this library speaks version 2 only
+ * (Zed refuses anything else the same way), so any other answer is a `ProtocolVersionError`. The Runtime answers a repeated initialize for a live
+ * process from its cache, so the handshake is safe on takeover.
+ */
+export async function initialize(
+  port: Pick<AgentPort<unknown>, "acpRequest">,
+  agentId: string,
+  handshake: Handshake
+): Promise<acp.InitializeResponse> {
+  const response = await port.acpRequest<unknown>(agentId, "initialize", {
+    protocolVersion: PROTOCOL_VERSION,
+    info: handshake.info,
+    capabilities: handshake.capabilities ?? {}
+  })
+  const protocolVersion = (response as { protocolVersion?: unknown } | null)?.protocolVersion
+  if (protocolVersion !== PROTOCOL_VERSION) throw new ProtocolVersionError(agentId, protocolVersion)
+  return response as acp.InitializeResponse
+}
+
 /**
  * A live agent. Created by `Agents.start` / `Agents.attach`; never construct it directly.
  */
@@ -75,13 +113,14 @@ export class Agent {
   /** The engine reported by the Runtime (on takeover) or supplied at start; the app interprets it. */
   readonly engine: string | null
   /** Result of initialize: the agent's identity, capabilities, and login methods. */
-  readonly initialized: unknown
+  readonly initialized: acp.InitializeResponse
   /** Resolves once the process is gone (exit event); detach does not count. */
   readonly exited: Promise<void>
 
   private _alive = true
   private readonly port: AgentPort<unknown>
-  private readonly inflight = new Set<(error: Error) => void>()
+  /** Requests awaiting a reply, by the id we gave them, with the method (detach abandons all but a turn). */
+  private readonly inflight = new Map<string, { method: string; fail: (error: Error) => void }>()
   private readonly notificationHandlers = new Set<(method: string, params: unknown) => void>()
   private readonly requestHandlers = new Set<(request: AgentRequest) => void>()
   private readonly idPrefix = `app-${Math.random().toString(36).slice(2, 8)}`
@@ -92,7 +131,7 @@ export class Agent {
   private readonly failureListeners = new Set<(error: Error) => void>()
 
   /** @internal */
-  constructor(port: AgentPort<unknown>, agentId: string, engine: string | null, initialized: unknown) {
+  constructor(port: AgentPort<unknown>, agentId: string, engine: string | null, initialized: acp.InitializeResponse) {
     this.port = port
     this.agentId = agentId
     this.engine = engine
@@ -156,21 +195,21 @@ export class Agent {
   }
 
   /**
-   * Sends an ACP request and waits for the agent's reply (the Runtime assigns the id and pairs the response).
+   * Sends an ACP request and waits for the agent's reply (the Runtime pairs the response by id).
    * `signal` abort = cancel this request: sends `$/cancel_request` per the spec (the agent MAY cancel and MUST answer the original request with -32800
-   * or a valid response), and fails locally at once with `RequestCancelledError` without waiting for the agent to cooperate. For this, requests carrying a signal
-   * pick their own id and pass it to the Runtime, so there is an id to refer to when cancelling.
+   * or a valid response), and fails locally at once with `RequestCancelledError` without waiting for the agent to cooperate. Every request picks its own id
+   * and passes it to the Runtime, so there is always an id to refer to when cancelling, whether by the caller's signal or by `detach`.
    */
   request<T = unknown>(method: string, params?: unknown, options?: { signal?: AbortSignal }): Promise<T> {
     const signal = options?.signal
     if (signal?.aborted) return Promise.reject(new RequestCancelledError())
     if (!this._alive) return Promise.reject(new AgentGoneError(this.agentId, "agent is gone"))
-    const id = signal ? `${this.idPrefix}-${this.nextId++}` : undefined
+    const id = `${this.idPrefix}-${this.nextId++}`
     return new Promise<T>((resolve, reject) => {
       let settled = false
       const settle = () => {
         settled = true
-        this.inflight.delete(fail)
+        this.inflight.delete(id)
         signal?.removeEventListener("abort", onAbort)
       }
       const fail = (error: Error) => {
@@ -185,8 +224,8 @@ export class Agent {
         reject(new RequestCancelledError())
       }
       signal?.addEventListener("abort", onAbort, { once: true })
-      this.inflight.add(fail)
-      this.port.acpRequest<T>(this.agentId, method, params, id === undefined ? undefined : { id }).then(
+      this.inflight.set(id, { method, fail })
+      this.port.acpRequest<T>(this.agentId, method, params, { id }).then(
         result => {
           if (settled) return
           settle()
@@ -233,12 +272,19 @@ export class Agent {
     }
   }
 
-  /** Let go: drop subscriptions, fail in-flight requests, and leave the process in the Runtime for the next taker (cross-window handoff). */
+  /**
+   * Let go: drop subscriptions, fail in-flight requests, and leave the process in the Runtime for the next taker (cross-window handoff).
+   * The requests this holder abandons are retracted with `$/cancel_request` (the agent MAY stop the work and MUST still answer, which the Runtime
+   * discards). A `session/prompt` is not abandoned: the turn belongs to the session and goes on for the next holder; only `session/cancel` ends it.
+   */
   detach(): void {
     if (!this._alive) return
     this._alive = false
     this.unlisten?.()
     this.unlisten = null
+    for (const [id, { method }] of this.inflight) {
+      if (method !== "session/prompt") void this.notify("$/cancel_request", { requestId: id })
+    }
     this.failInflight(new AgentGoneError(this.agentId, "agent detached"))
   }
 
@@ -255,7 +301,7 @@ export class Agent {
 
   private failInflight(error: Error): void {
     for (const listener of this.failureListeners) listener(error)
-    for (const fail of [...this.inflight]) fail(error)
+    for (const { fail } of [...this.inflight.values()]) fail(error)
     this.inflight.clear()
   }
 }
@@ -289,11 +335,24 @@ export class Agents<Launch = unknown, Info extends AttachInfo = AttachInfo> {
 
   /**
    * Starts a new process. If the same agentId is still alive the Runtime rejects it outright; swapping the engine is `replace`.
-   * The handshake happens here once; afterwards the Runtime answers repeated initialize from its cache.
+   * The handshake happens here once; afterwards the Runtime answers repeated initialize from its cache. A process started here that cannot be
+   * spoken to (handshake refused, wrong protocol version) is stopped again rather than left behind for someone else to find.
    */
   async start(agentId: string, launch: Launch, engine: string | null = null): Promise<Agent> {
     await this.port.start(agentId, launch)
-    return this.hold(agentId, engine)
+    try {
+      return await this.adopt(agentId, engine)
+    } catch (error) {
+      try {
+        await this.port.stop(agentId)
+      } catch (stopError) {
+        throw new AggregateError(
+          [error, stopError],
+          `agent ${agentId}: the handshake failed and the process could not be stopped`
+        )
+      }
+      throw error
+    }
   }
 
   /**
@@ -306,7 +365,7 @@ export class Agents<Launch = unknown, Info extends AttachInfo = AttachInfo> {
     const existing = this.held.get(info.agentId)
     if (existing?.alive) return { agent: existing, info }
     try {
-      return { agent: await this.hold(info.agentId, info.engine), info }
+      return { agent: await this.adopt(info.agentId, info.engine), info }
     } catch (error) {
       // Claimed but the handshake failed: release the claim so other windows are not locked out for good
       await this.port.releaseSession(sessionId).catch(() => undefined)
@@ -320,13 +379,15 @@ export class Agents<Launch = unknown, Info extends AttachInfo = AttachInfo> {
     return this.start(agentId, launch, engine)
   }
 
-  private async hold(agentId: string, engine: string | null): Promise<Agent> {
+  /**
+   * Holds a process the Runtime already runs that no session leads to (a fresh agent after a reload, before its first session): handshake, subscribe,
+   * and take it into the held table. `start` and `attach` end here as well.
+   */
+  async adopt(agentId: string, engine: string | null): Promise<Agent> {
+    const existing = this.held.get(agentId)
+    if (existing?.alive) return existing
     // ACP v2 handshakes once per connection; on takeover the Runtime answers with the cached handshake result, without disturbing the engine
-    const initialized = await this.port.acpRequest(agentId, "initialize", {
-      protocolVersion: 2,
-      info: this.handshake.info,
-      capabilities: this.handshake.capabilities ?? {}
-    })
+    const initialized = await initialize(this.port as unknown as AgentPort<unknown>, agentId, this.handshake)
     const agent = new Agent(this.port as unknown as AgentPort<unknown>, agentId, engine, initialized)
     await agent.listen()
     this.held.set(agentId, agent)

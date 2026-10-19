@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { AgentGoneError, Agents, RequestCancelledError } from "../agents"
+import { AgentGoneError, Agents, ProtocolVersionError, RequestCancelledError } from "../agents"
 import type {
   RuntimeAcpAgentRequest,
   RuntimeAcpNotification,
@@ -18,6 +18,8 @@ class FakeRuntime implements Partial<RuntimeClient<{ engine: string }>> {
   attachable = new Map<string, RuntimeAttachInfo>()
   /** Request → reply, scripted per method; by default echoes params back. */
   answer: (method: string, params: unknown) => unknown = (_method, params) => params
+  /** What initialize answers; the real protocol lets an agent answer a lower version than asked. */
+  protocolVersion: unknown = 2
   private readonly notificationHandlers = new Set<(n: RuntimeAcpNotification) => void>()
   private readonly requestHandlers = new Set<(r: RuntimeAcpAgentRequest) => void>()
   private readonly exitHandlers = new Set<(e: RuntimeExitPayload) => void>()
@@ -64,7 +66,7 @@ class FakeRuntime implements Partial<RuntimeClient<{ engine: string }>> {
   acpRequest<T>(agentId: string, method: string, params?: unknown): Promise<T> {
     if (method === "initialize") {
       this.calls.push(`initialize ${agentId} ${(params as { info: { name: string } }).info.name}`)
-      return Promise.resolve({ protocolVersion: 2, info: { name: "fake-agent", version: "1" } } as T)
+      return Promise.resolve({ protocolVersion: this.protocolVersion, info: { name: "fake-agent", version: "1" } } as T)
     }
     this.calls.push(`request ${agentId} ${method}`)
     if (this.hang.has(method))
@@ -270,5 +272,50 @@ describe("Runtime failure", () => {
     expect(agent.inflightCount).toBe(0)
     runtime.hang.delete("session/prompt")
     await expect(agent.request("session/prompt", { ok: 1 })).resolves.toEqual({ ok: 1 })
+  })
+})
+
+describe("handshake", () => {
+  test("an agent answering initialize with any protocol version but 2 is refused; a process started here is stopped again", async () => {
+    const { runtime, agents } = make()
+    runtime.protocolVersion = 1
+    await expect(agents.start("a1", { engine: "alwith" })).rejects.toBeInstanceOf(ProtocolVersionError)
+    await flush()
+    expect(runtime.calls).toEqual(["start a1", "initialize a1 test-app", "stop a1"])
+    expect(agents.get("a1")).toBeUndefined()
+    runtime.running.add("a2")
+    runtime.attachable.set("s2", { agentId: "a2", engine: "alwith", pendingAgentRequests: [] } as never)
+    runtime.protocolVersion = "2"
+    await expect(agents.attach("s2")).rejects.toBeInstanceOf(ProtocolVersionError)
+    // Attached but refused: the claim is given back; the process is someone else's to stop
+    expect(runtime.calls.slice(-3)).toEqual(["attach s2", "initialize a2 test-app", "release s2"])
+  })
+
+  test("adopt: holds a running process that no session leads to, handshaking once; a second adopt is the same agent", async () => {
+    const { runtime, agents } = make()
+    runtime.running.add("a1")
+    const agent = await agents.adopt("a1", "alwith")
+    expect(runtime.calls).toEqual(["initialize a1 test-app"])
+    expect(agent.engine).toBe("alwith")
+    expect(await agents.adopt("a1", "alwith")).toBe(agent)
+    expect(runtime.calls).toEqual(["initialize a1 test-app"])
+    expect(agents.get("a1")).toBe(agent)
+  })
+})
+
+describe("abandoned requests", () => {
+  test("detach retracts this holder's in-flight requests with $/cancel_request, except a prompt, whose turn goes on for the next holder", async () => {
+    const { runtime, agents } = make()
+    const agent = await agents.start("a1", { engine: "alwith" })
+    runtime.hang.add("session/list")
+    runtime.hang.add("session/prompt")
+    const list = agent.request("session/list", {})
+    const prompt = agent.request("session/prompt", { sessionId: "s" })
+    agent.detach()
+    await expect(list).rejects.toBeInstanceOf(AgentGoneError)
+    await expect(prompt).rejects.toBeInstanceOf(AgentGoneError)
+    expect(runtime.notified.map(n => n.method)).toEqual(["$/cancel_request"])
+    expect(String((runtime.notified[0]?.params as { requestId: string }).requestId)).toMatch(/-1$/)
+    expect(runtime.running.has("a1")).toBe(true)
   })
 })
