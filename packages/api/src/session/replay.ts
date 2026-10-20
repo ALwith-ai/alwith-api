@@ -1,7 +1,7 @@
 // Replay by record position (alwith-cli 2.9.75+): an agent that declares `capabilities._meta.alwith.replay.cursor` takes
 // `replayFrom: { type: "_alwith/seq", after }` and answers with the replay's identity and the record's cut; every frame of
 // that replay carries `_meta.replay.id`, so a client can tell a late frame of a superseded replay from the one it is waiting for.
-import type * as acp from "@agentclientprotocol/sdk/experimental/v2"
+import type * as acp from "@agentclientprotocol/sdk/experimental/v2/unstable"
 import type { Session } from "./session"
 
 export const SEQ_CURSOR = "_alwith/seq"

@@ -1,7 +1,7 @@
 // Type guards for ACP unions. Every ACP union carries a `{type: string}` catch-all
 // for forward compatibility, so a plain `block.type === "text"` check does not
 // narrow; these predicates do.
-import type * as acp from "@agentclientprotocol/sdk/experimental/v2"
+import type * as acp from "@agentclientprotocol/sdk/experimental/v2/unstable"
 
 export type TextBlock = acp.TextContent & { type: "text" }
 export type ImageBlock = acp.ImageContent & { type: "image" }

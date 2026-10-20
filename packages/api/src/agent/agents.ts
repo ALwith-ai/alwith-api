@@ -6,7 +6,7 @@
 // - swapping the engine = stop -> wait for exit -> start (one process per agentId at a time; the Runtime rejects concurrent starts);
 // - when the process exits / is stopped / is let go, requests still awaiting an answer fail immediately, so the caller's await never hangs;
 // - stop must wait for the exit event, otherwise the engine-switch resume would reattach to the old process.
-import type * as acp from "@agentclientprotocol/sdk/experimental/v2"
+import type * as acp from "@agentclientprotocol/sdk/experimental/v2/unstable"
 import { type AgentRequest, REQUEST_CANCELLED } from "./requests"
 
 /** The only protocol version this library speaks. */

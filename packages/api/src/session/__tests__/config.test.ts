@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type * as acp from "@agentclientprotocol/sdk/experimental/v2"
+import type * as acp from "@agentclientprotocol/sdk/experimental/v2/unstable"
 import { ConfigStaleError, configRevisionOf, configStaleOf, promptConfigMeta, supportsConfigRevision } from "../config"
 import { applyUpdate, createSession } from "../session"
 

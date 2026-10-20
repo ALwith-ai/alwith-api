@@ -4,7 +4,7 @@
 // all unanswered permissions of that session MUST be answered cancelled (otherwise the requests hang in the agent and Runtime forever, and are
 // replayed as zombie dialogs on the next takeover); requests the agent retracts itself (`$/cancel_request`) get -32800 and the dialog is dismissed; unknown
 // requests get -32601 rather than leaving the agent waiting. This only manages the ledger and the replies; what dialog to show is the app's business.
-import type * as acp from "@agentclientprotocol/sdk/experimental/v2"
+import type * as acp from "@agentclientprotocol/sdk/experimental/v2/unstable"
 
 /** A request sent by the agent, same shape as the Runtime's `pendingAgentRequests`. */
 export type AgentRequest = { id: unknown; method: string; params: unknown }

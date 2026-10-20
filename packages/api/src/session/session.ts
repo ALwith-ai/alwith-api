@@ -1,9 +1,9 @@
 // State of one ACP v2 session: `session/update` frames go in, a renderable `Session` comes out.
 // Pure functions: no transport, no process, no knowledge of any UI framework. Each update returns a new Session object,
 // so the render layer can use reference equality to decide whether to redraw.
-import type * as acp from "@agentclientprotocol/sdk/experimental/v2"
+import type * as acp from "@agentclientprotocol/sdk/experimental/v2/unstable"
 import { configRevisionOf } from "./config"
-import { IdleStateUpdate } from "@agentclientprotocol/sdk/experimental/v2"
+import { IdleStateUpdate } from "@agentclientprotocol/sdk/experimental/v2/unstable"
 import { isText } from "./blocks"
 
 export type SessionState = "idle" | "running" | "requires_action"

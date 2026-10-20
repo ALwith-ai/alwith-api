@@ -1,7 +1,7 @@
 // What a client checks before sending, against what the agent declared: the prompt content an agent accepts comes from its initialize
 // response, the config values a session accepts from its broadcast options. Checking here turns an opaque -32602 from the agent into a
 // named error at the call site, and never sends a request the agent has already said it cannot serve.
-import type * as acp from "@agentclientprotocol/sdk/experimental/v2"
+import type * as acp from "@agentclientprotocol/sdk/experimental/v2/unstable"
 import { isBooleanOption, isGroupedSelect, isSelectOption } from "../session/blocks"
 
 /** The prompt holds content the agent did not declare support for in `promptCapabilities`. */
