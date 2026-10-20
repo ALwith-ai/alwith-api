@@ -14,7 +14,8 @@ export class ModuleRequestError extends Error {
   }
 }
 
-export type ModuleRequestHandler = (method: string, params: unknown, signal: AbortSignal) => unknown | Promise<unknown>
+/** The result may be a Promise; it is awaited before the response is sent. */
+export type ModuleRequestHandler = (method: string, params: unknown, signal: AbortSignal) => unknown
 
 export type ModuleRuntimeOptions = {
   input: Readable
@@ -43,12 +44,17 @@ export class ModuleRuntimeClient<Launch = unknown> extends FrameRuntimeClient<La
     return this.lifetime.signal
   }
 
+  /** The abort reason as an Error: AbortController.abort() always sets one, but callers may pass any value. */
+  private abortError(): Error {
+    return this.signal.reason instanceof Error ? this.signal.reason : new Error(String(this.signal.reason))
+  }
+
   protected connectTransport(): Promise<void> {
-    return this.signal.aborted ? Promise.reject(this.signal.reason) : Promise.resolve()
+    return this.signal.aborted ? Promise.reject(this.abortError()) : Promise.resolve()
   }
 
   protected write(text: string): Promise<void> {
-    if (this.signal.aborted) return Promise.reject(this.signal.reason)
+    if (this.signal.aborted) return Promise.reject(this.abortError())
     return new Promise((resolve, reject) => {
       this.options.output.write(`${text}\n`, (error) => (error ? reject(error) : resolve()))
     })

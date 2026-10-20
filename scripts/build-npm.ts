@@ -14,7 +14,7 @@ for (const required of ["LICENSE", "THIRD_PARTY_NOTICES.md"]) {
   if (!existsSync(resolve(root, required))) throw new Error(`Missing distribution notice: ${required}`)
 }
 if (!existsSync(resolve(root, "tsconfig.json")) || !existsSync(src)) throw new Error("Run in an ALwith TS package")
-const config = ts.readConfigFile(resolve(root, "tsconfig.json"), ts.sys.readFile)
+const config = ts.readConfigFile(resolve(root, "tsconfig.json"), (path) => ts.sys.readFile(path))
 if (config.error) throw new Error(ts.flattenDiagnosticMessageText(config.error.messageText, "\n"))
 const parsed = ts.parseJsonConfigFileContent(
   { ...config.config, exclude: ["src/**/__tests__/**", "src/**/*.test.*", "src/**/*.spec.*"] },
@@ -61,7 +61,8 @@ const rewrite = (context: import("typescript").TransformationContext) => {
     }
     return ts.visitEachChild(node, visit, context)
   }
-  return (file: import("typescript").SourceFile) => {
+  return (file: import("typescript").SourceFile | import("typescript").Bundle) => {
+    if (ts.isBundle(file)) throw new Error("Bundle emit is not used; files are emitted one by one")
     sourceFile = file.fileName
     return ts.visitNode(file, visit) as import("typescript").SourceFile
   }
@@ -69,7 +70,7 @@ const rewrite = (context: import("typescript").TransformationContext) => {
 rmSync(dist, { recursive: true, force: true })
 const result = program.emit(undefined, undefined, undefined, false, {
   after: [rewrite],
-  afterDeclarations: [rewrite as any]
+  afterDeclarations: [rewrite]
 })
 if (result.emitSkipped || result.diagnostics.length) throw new Error("Declaration/JS emit failed")
 function walk(dir: string): string[] {
@@ -96,12 +97,15 @@ for (const file of walk(dist).filter((f) => f.endsWith(".js"))) {
     write: false
   })
   if (!built.success || built.outputs.length !== 1)
-    throw new Error(`Minification failed: ${file}\n${built.logs.join("\n")}`)
+    throw new Error(`Minification failed: ${file}\n${built.logs.map((log) => log.message).join("\n")}`)
   writeFileSync(file, await built.outputs[0].text())
 }
-const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"))
-for (const entry of Object.values(pkg.exports) as any[]) {
-  for (const target of typeof entry === "string" ? [entry] : (Object.values(entry) as string[])) {
+const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")) as {
+  name: string
+  exports: Record<string, string | Record<string, string>>
+}
+for (const entry of Object.values(pkg.exports)) {
+  for (const target of typeof entry === "string" ? [entry] : Object.values(entry)) {
     if (!target.startsWith("./dist/") || !existsSync(resolve(root, target)))
       throw new Error(`Invalid export: ${target}`)
   }

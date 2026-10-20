@@ -7,10 +7,10 @@ import { ModuleRequestError, type ModuleRequestHandler, ModuleRuntimeClient } fr
 function harness(handle: ModuleRequestHandler) {
   const input = new PassThrough()
   const output = new PassThrough()
-  const frames: Array<Record<string, any>> = []
-  const readers: Array<(frame: Record<string, any>) => void> = []
+  const frames: Array<Record<string, unknown>> = []
+  const readers: Array<(frame: Record<string, unknown>) => void> = []
   createInterface({ input: output }).on("line", (line) => {
-    const value = JSON.parse(line)
+    const value = JSON.parse(line) as Record<string, unknown>
     const reader = readers.shift()
     if (reader) reader(value)
     else frames.push(value)
@@ -22,7 +22,7 @@ function harness(handle: ModuleRequestHandler) {
     output,
     frames,
     send: (value: unknown) => input.write(JSON.stringify(value) + "\n"),
-    next: (): Promise<Record<string, any>> =>
+    next: (): Promise<Record<string, unknown>> =>
       frames.length ? Promise.resolve(frames.shift()!) : new Promise((resolve) => readers.push(resolve))
   }
 }
@@ -73,7 +73,7 @@ test("EOF rejects pending Runtime calls, aborts handlers and suppresses late res
     })
   })
   port.send({ id: 2, method: "slow" })
-  const pending = port.client.request("ping").catch((error) => error)
+  const pending = port.client.request("ping").catch((error: unknown) => error)
   await port.next()
   port.input.end()
   expect(await pending).toBeInstanceOf(Error)

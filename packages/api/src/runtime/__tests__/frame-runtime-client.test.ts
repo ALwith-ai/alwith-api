@@ -102,7 +102,7 @@ describe("FrameRuntimeClient", () => {
     const session = port.sessionNew("a", "/work", [], { alwith: { maxBudgetUsd: 1 } })
     const turn = port.prompt("a", "s-1", [{ type: "text", text: "hi" }])
     await flush()
-    expect(port.written.map((line) => JSON.parse(line))).toEqual([
+    expect(port.written.map((line) => JSON.parse(line) as unknown)).toEqual([
       {
         id: 1,
         method: "sessionNew",

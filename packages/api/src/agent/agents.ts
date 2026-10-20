@@ -348,7 +348,8 @@ export class Agents<Launch = unknown, Info extends AttachInfo = AttachInfo> {
       } catch (stopError) {
         throw new AggregateError(
           [error, stopError],
-          `agent ${agentId}: the handshake failed and the process could not be stopped`
+          `agent ${agentId}: the handshake failed and the process could not be stopped`,
+          { cause: stopError }
         )
       }
       throw error
@@ -387,8 +388,8 @@ export class Agents<Launch = unknown, Info extends AttachInfo = AttachInfo> {
     const existing = this.held.get(agentId)
     if (existing?.alive) return existing
     // ACP v2 handshakes once per connection; on takeover the Runtime answers with the cached handshake result, without disturbing the engine
-    const initialized = await initialize(this.port as unknown as AgentPort<unknown>, agentId, this.handshake)
-    const agent = new Agent(this.port as unknown as AgentPort<unknown>, agentId, engine, initialized)
+    const initialized = await initialize(this.port, agentId, this.handshake)
+    const agent = new Agent(this.port, agentId, engine, initialized)
     await agent.listen()
     this.held.set(agentId, agent)
     // Synchronous: in the same call stack as the exit event, clear the held table and notify the app; reaping and crash notices must not lag by a microtask

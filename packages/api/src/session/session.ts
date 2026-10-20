@@ -221,10 +221,6 @@ function meta(value: unknown): Record<string, unknown> | null {
     : null
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-}
-
 /**
  * ACP v2's `_meta` patch (see `ItemBase._meta`): `undefined` leaves `previous` unchanged, `null` clears it, an object
  * patches by top-level key (`null` removes the key, any other value replaces it whole). An empty result is `null`.

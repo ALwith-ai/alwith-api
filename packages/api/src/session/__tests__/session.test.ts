@@ -367,7 +367,7 @@ describe("markTerminated", () => {
       sessionUpdate: "session_info_update",
       _meta: { alwith: { seq: 3, instanceTerminated: { instanceId: "i-1", finalSeq: 2 } } }
     })
-    const tools = session.items.filter((item) => item.kind === "tool") as ToolItem[]
+    const tools = session.items.filter((item) => item.kind === "tool")
     expect(tools.map((tool) => [tool.id, tool.status])).toEqual([
       ["t1", INTERRUPTED],
       ["t2", "completed"]

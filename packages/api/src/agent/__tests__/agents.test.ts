@@ -110,10 +110,7 @@ const handshake = { info: { name: "test-app", version: "0" } }
 
 function make() {
   const runtime = new FakeRuntime()
-  const agents = new Agents<{ engine: string }, RuntimeAttachInfo>(
-    runtime as unknown as RuntimeClient<{ engine: string }>,
-    handshake
-  )
+  const agents = new Agents<{ engine: string }, RuntimeAttachInfo>(runtime, handshake)
   return { runtime, agents }
 }
 

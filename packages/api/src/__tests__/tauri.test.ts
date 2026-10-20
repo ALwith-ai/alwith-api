@@ -36,8 +36,8 @@ test("reloaded windows with identical request ids ignore each other's replies bu
   for (let i = 0; requests.length < 2 && i < 100; i++) await Bun.sleep(1)
   expect(requests).toHaveLength(2)
   expect(connections[0]).not.toBe(connections[1])
-  const oldFrame = JSON.parse(requests[0].line)
-  const newFrame = JSON.parse(requests[1].line)
+  const oldFrame = JSON.parse(requests[0].line) as { id: unknown }
+  const newFrame = JSON.parse(requests[1].line) as { id: unknown }
   expect(oldFrame.id).toBe(newFrame.id)
   let resolved = false
   void fresh.then(() => {

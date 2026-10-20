@@ -76,7 +76,7 @@ export class ProcessRuntimeClient<Launch = unknown> extends FrameRuntimeClient<L
       })
       this.child = child
       let settled = false
-      const lines = createInterface({ input: child.stdout! })
+      const lines = createInterface({ input: child.stdout })
       lines.on("line", (line) => {
         if (!settled) {
           try {

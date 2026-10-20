@@ -57,7 +57,7 @@ export class PromptTracker {
         })
         .catch((error: unknown) => {
           current.pending.delete(pending)
-          reject(error)
+          reject(error instanceof Error ? error : new Error(String(error)))
           this.prune(sessionId, current)
         })
     })
