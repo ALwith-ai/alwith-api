@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test"
+
 import type { PromptResponse, SessionUpdate } from "@agentclientprotocol/sdk/experimental/v2/unstable"
+
 import { PromptTracker } from "../prompts"
 
 const idle = { sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" } as const

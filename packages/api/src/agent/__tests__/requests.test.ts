@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+
 import { AgentRequests, METHOD_NOT_FOUND, REQUEST_CANCELLED } from "../requests"
 
 type Sent = { id: unknown; result?: unknown; error?: { code: number; message: string } }

@@ -2,6 +2,7 @@
 // a prompt may carry the revision the user saw, and the agent refuses the prompt with `config/stale` when a write landed
 // in between, handing the actual options back beside the refusal.
 import type * as acp from "@agentclientprotocol/sdk/experimental/v2/unstable"
+
 import type { Session } from "./session"
 
 /** `_meta.alwith.configRevision` of a session response or a `config_option_update`, or null. */

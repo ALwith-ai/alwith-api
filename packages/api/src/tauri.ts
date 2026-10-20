@@ -5,6 +5,7 @@
 // Events retain their shared Runtime identity. A process exit requires a fresh client.
 import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+
 import { FrameRuntimeClient } from "./runtime/frame-runtime-client"
 
 export const LINES_EVENT = "runtime:lines"

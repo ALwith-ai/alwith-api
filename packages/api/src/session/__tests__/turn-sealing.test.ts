@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { applyUpdate, createSession, INTERRUPTED, markInterrupted, type FoldPolicy, type ToolItem } from "../session"
+
+import { applyUpdate, createSession, type FoldPolicy, INTERRUPTED, markInterrupted, type ToolItem } from "../session"
 import { SessionStore } from "../store"
 
 function tool(session: ReturnType<typeof createSession>, id: string): ToolItem {

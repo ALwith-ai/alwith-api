@@ -1,4 +1,9 @@
-import type { PromptResponse, SessionUpdate, StateUpdate, UserMessage } from "@agentclientprotocol/sdk/experimental/v2/unstable"
+import type {
+  PromptResponse,
+  SessionUpdate,
+  StateUpdate,
+  UserMessage
+} from "@agentclientprotocol/sdk/experimental/v2/unstable"
 
 export type PromptCompletion = Extract<StateUpdate, { state: "idle" }>
 type Insertion = { completion: PromptCompletion | null }

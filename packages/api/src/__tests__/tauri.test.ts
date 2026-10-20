@@ -1,7 +1,9 @@
 import { afterEach, expect, test } from "bun:test"
+
 import { emit } from "@tauri-apps/api/event"
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks"
-import { TauriRuntimeClient, LINES_EVENT } from "../tauri"
+
+import { LINES_EVENT, TauriRuntimeClient } from "../tauri"
 
 const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window")
 const clients: TauriRuntimeClient[] = []

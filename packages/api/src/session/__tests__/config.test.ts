@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
+
 import type * as acp from "@agentclientprotocol/sdk/experimental/v2/unstable"
-import { ConfigStaleError, configRevisionOf, configStaleOf, promptConfigMeta, supportsConfigRevision } from "../config"
+
+import { configRevisionOf, ConfigStaleError, configStaleOf, promptConfigMeta, supportsConfigRevision } from "../config"
 import { applyUpdate, createSession } from "../session"
 
 const agent = (revisions: boolean): acp.InitializeResponse => ({

@@ -4,6 +4,7 @@
 // But UIs are almost always laid out as question-and-answer: a user bubble, followed by that turn's reply, thinking, and tools.
 // Every WorkBuddy needs this grouping and there is really only one way to do it, so it lives in the package instead of being rewritten each time.
 import type * as acp from "@agentclientprotocol/sdk/experimental/v2/unstable"
+
 import type { CompactionItem, FoldPolicy, Item, MessageItem, PlanItem, Session, ToolItem } from "./session"
 
 /** A tool, plus the sub-tools it dispatched. */

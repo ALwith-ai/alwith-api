@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test"
-import { PassThrough } from "node:stream"
 import { createInterface } from "node:readline"
-import { ModuleRequestError, ModuleRuntimeClient, type ModuleRequestHandler } from "../../module"
+import { PassThrough } from "node:stream"
+
+import { ModuleRequestError, type ModuleRequestHandler, ModuleRuntimeClient } from "../../module"
 
 function harness(handle: ModuleRequestHandler) {
   const input = new PassThrough()

@@ -3,8 +3,9 @@
 // Terminal blocks are stored separately (not in `items`): their output arrives as a byte stream, a multi-byte character may span two chunks,
 // and the same `TextDecoder` must keep decoding it. This is the one piece of state a pure reducer cannot hold.
 import type * as acp from "@agentclientprotocol/sdk/experimental/v2/unstable"
-import { acknowledgePrompt, addPrompt, applyUpdate, type FoldPolicy, markInterrupted, type Session } from "./session"
+
 import type { ReplayReceipt } from "./replay"
+import { acknowledgePrompt, addPrompt, applyUpdate, type FoldPolicy, markInterrupted, type Session } from "./session"
 import { type Turn, turns } from "./turns"
 
 function decodeBase64(data: string): Uint8Array {

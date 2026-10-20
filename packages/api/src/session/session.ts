@@ -2,9 +2,10 @@
 // Pure functions: no transport, no process, no knowledge of any UI framework. Each update returns a new Session object,
 // so the render layer can use reference equality to decide whether to redraw.
 import type * as acp from "@agentclientprotocol/sdk/experimental/v2/unstable"
-import { configRevisionOf } from "./config"
 import { IdleStateUpdate } from "@agentclientprotocol/sdk/experimental/v2/unstable"
+
 import { isText } from "./blocks"
+import { configRevisionOf } from "./config"
 
 export type SessionState = "idle" | "running" | "requires_action"
 

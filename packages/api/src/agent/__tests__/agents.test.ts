@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { AgentGoneError, Agents, ProtocolVersionError, RequestCancelledError } from "../agents"
+
 import type {
   RuntimeAcpAgentRequest,
   RuntimeAcpNotification,
@@ -8,6 +8,7 @@ import type {
   RuntimeClient,
   RuntimeExitPayload
 } from "../../runtime"
+import { AgentGoneError, Agents, ProtocolVersionError, RequestCancelledError } from "../agents"
 
 const flush = () => new Promise<void>(resolve => setTimeout(resolve, 0))
 

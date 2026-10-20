@@ -1,4 +1,4 @@
-import { cpSync, readFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 
 type PackageValue = string | number | boolean | string[] | { workspace: boolean }

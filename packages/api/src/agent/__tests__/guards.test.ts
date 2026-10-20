@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test"
+
 import type * as acp from "@agentclientprotocol/sdk/experimental/v2/unstable"
+
 import { assertPromptSupported, ConfigOptionError, configOptionRequest, UnsupportedPromptContentError } from "../guards"
 
 const initialized = (prompt?: acp.PromptCapabilities): acp.InitializeResponse => ({

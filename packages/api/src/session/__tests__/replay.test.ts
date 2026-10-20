@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test"
+
 import type * as acp from "@agentclientprotocol/sdk/experimental/v2/unstable"
+
 import { replayCursorFor, replayIdOf, replayReceiptOf, supportsSeqCursor } from "../replay"
 import { applyUpdate, createSession } from "../session"
 import { SessionStore } from "../store"
