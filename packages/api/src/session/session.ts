@@ -275,7 +275,7 @@ function upsertItem<T extends Item>(
   create: (base: ItemBase) => T,
   patch: (item: T) => T
 ): Session {
-  const index = session.items.findIndex(item => item.kind === kind && item.id === id)
+  const index = session.items.findIndex((item) => item.kind === kind && item.id === id)
   if (index === -1) {
     const at = nextStamp(session)
     const base: ItemBase = { id, at, replayed: session.restoring, _meta: null }
@@ -351,14 +351,14 @@ function outlivesTurn(tool: ToolItem, session: Session, policy: FoldPolicy | und
     current =
       parentId === null
         ? undefined
-        : (session.items.find(item => item.kind === "tool" && item.id === parentId) as ToolItem | undefined)
+        : (session.items.find((item) => item.kind === "tool" && item.id === parentId) as ToolItem | undefined)
   }
   return false
 }
 
 function mapTools(session: Session, map: (tool: ToolItem) => ToolItem): Session {
   let changed = false
-  const items = session.items.map(item => {
+  const items = session.items.map((item) => {
     if (item.kind !== "tool") return item
     const next = map(item)
     if (next !== item) changed = true
@@ -380,7 +380,7 @@ function mapTools(session: Session, map: (tool: ToolItem) => ToolItem): Session 
  */
 function sealTurn(session: Session, policy: FoldPolicy | undefined): Session {
   const now = nextStamp(session)
-  const sealed = mapTools(session, tool =>
+  const sealed = mapTools(session, (tool) =>
     isRunning(tool) && !outlivesTurn(tool, session, policy) ? { ...tool, status: "completed", endedAt: now } : tool
   )
   return sealed === session ? session : { ...sealed, clock: now }
@@ -396,7 +396,7 @@ function sealTurn(session: Session, policy: FoldPolicy | undefined): Session {
  */
 export function markInterrupted(session: Session, policy: FoldPolicy = {}): Session {
   const now = nextStamp(session)
-  const marked = mapTools(session, tool =>
+  const marked = mapTools(session, (tool) =>
     isRunning(tool) && outlivesTurn(tool, session, policy) ? { ...tool, status: INTERRUPTED, endedAt: now } : tool
   )
   return marked === session ? session : { ...marked, clock: now }
@@ -422,11 +422,11 @@ export function addPrompt(session: Session, content: acp.ContentBlock[], id: str
 
 /** Match a local optimistic message using its own prompt response, never arrival order. */
 export function acknowledgePrompt(session: Session, localId: string, messageId: string): Session {
-  const local = session.items.find(item => item.kind === "user" && item.id === localId)
+  const local = session.items.find((item) => item.kind === "user" && item.id === localId)
   if (local === undefined || local.kind !== "user" || local.echo !== "pending") {
     throw new Error(`Unknown pending prompt ${localId}`)
   }
-  const remote = session.items.find(item => item.kind === "user" && item.id === messageId && item !== local)
+  const remote = session.items.find((item) => item.kind === "user" && item.id === messageId && item !== local)
   if (remote !== undefined && (remote.kind !== "user" || remote.echo !== null)) {
     throw new Error(`Message ${messageId} already belongs to another prompt`)
   }
@@ -438,8 +438,8 @@ export function acknowledgePrompt(session: Session, localId: string, messageId: 
   }
   const items =
     remote === undefined
-      ? session.items.map(item => (item === local ? adopted : item))
-      : session.items.filter(item => item !== local).map(item => (item === remote ? adopted : item))
+      ? session.items.map((item) => (item === local ? adopted : item))
+      : session.items.filter((item) => item !== local).map((item) => (item === remote ? adopted : item))
   const turnUsage = { ...session.turnUsage }
   const turnEndedAt = { ...session.turnEndedAt }
   if (localId !== messageId) {
@@ -509,10 +509,10 @@ export function markTerminated(session: Session, termination: InstanceTerminatio
     const seq = itemSeq(item)
     return seq === null ? item.replayed : seq <= termination.finalSeq
   }
-  const reaped = mapTools(session, tool =>
+  const reaped = mapTools(session, (tool) =>
     isRunning(tool) && before(tool) ? { ...tool, status: INTERRUPTED, endedAt: now } : tool
   )
-  const lastUser = [...reaped.items].reverse().find(item => item.kind === "user")
+  const lastUser = [...reaped.items].reverse().find((item) => item.kind === "user")
   const openTurn = lastUser !== undefined && !(lastUser.id in reaped.turnEndedAt) && before(lastUser)
   const changed = reaped !== session || openTurn
   if (!changed) return session
@@ -545,13 +545,13 @@ function fold(session: Session, update: acp.SessionUpdate, options: ApplyOptions
         : anonymousMessageId(session, messageKind)
     if (messageKind === "user") {
       const acknowledged = session.items.find(
-        item => item.kind === "user" && item.id === messageId && item.echo === "acknowledged"
+        (item) => item.kind === "user" && item.id === messageId && item.echo === "acknowledged"
       )
       if (acknowledged !== undefined && acknowledged.kind === "user") {
         return {
           ...session,
           items: [
-            ...session.items.filter(item => item !== acknowledged),
+            ...session.items.filter((item) => item !== acknowledged),
             {
               ...acknowledged,
               echo: "adopted",
@@ -567,8 +567,8 @@ function fold(session: Session, update: acp.SessionUpdate, options: ApplyOptions
       session,
       messageKind,
       messageId,
-      base => ({ ...base, kind: messageKind, content: [], echo: null }),
-      item =>
+      (base) => ({ ...base, kind: messageKind, content: [], echo: null }),
+      (item) =>
         item.echo === "adopted"
           ? { ...item, _meta: isChunk ? patchChunkMeta(item._meta, frame._meta) : patchMeta(item._meta, frame._meta) }
           : {
@@ -607,7 +607,7 @@ function fold(session: Session, update: acp.SessionUpdate, options: ApplyOptions
           stopReason === "max_tokens" ||
           stopReason === "max_turn_requests"
         const usage = idle.usage ?? null
-        const turnUser = session.items.findLast(item => item.kind === "user" && item.echo !== "pending")
+        const turnUser = session.items.findLast((item) => item.kind === "user" && item.echo !== "pending")
         const sealed = sealTurn(session, options.policy)
         const endedAt = nextStamp(sealed)
         return {
@@ -638,7 +638,7 @@ function fold(session: Session, update: acp.SessionUpdate, options: ApplyOptions
         session,
         "tool",
         frame.toolCallId,
-        base => ({
+        (base) => ({
           ...base,
           kind: "tool",
           name: null,
@@ -651,7 +651,7 @@ function fold(session: Session, update: acp.SessionUpdate, options: ApplyOptions
           rawOutput: undefined,
           endedAt: null
         }),
-        item => {
+        (item) => {
           // Omitted fields keep their value; an explicit null clears.
           const patched: ToolItem = {
             ...item,
@@ -685,7 +685,7 @@ function fold(session: Session, update: acp.SessionUpdate, options: ApplyOptions
         session,
         "tool",
         frame.toolCallId,
-        base => ({
+        (base) => ({
           ...base,
           kind: "tool",
           name: null,
@@ -698,7 +698,7 @@ function fold(session: Session, update: acp.SessionUpdate, options: ApplyOptions
           rawOutput: undefined,
           endedAt: null
         }),
-        item => ({ ...item, content: [...item.content, frame.content] })
+        (item) => ({ ...item, content: [...item.content, frame.content] })
       )
     }
     case "terminal_update": {
@@ -754,15 +754,15 @@ function fold(session: Session, update: acp.SessionUpdate, options: ApplyOptions
         session,
         "plan",
         frame.plan.planId,
-        base => ({ ...base, kind: "plan", plan: frame.plan }),
-        item => ({ ...item, plan: frame.plan, _meta: patchMeta(item._meta, frame._meta) })
+        (base) => ({ ...base, kind: "plan", plan: frame.plan }),
+        (item) => ({ ...item, plan: frame.plan, _meta: patchMeta(item._meta, frame._meta) })
       )
     }
     case "plan_removed": {
       const frame = update as acp.PlanRemoved
       return {
         ...session,
-        items: session.items.filter(item => !(item.kind === "plan" && item.id === frame.planId))
+        items: session.items.filter((item) => !(item.kind === "plan" && item.id === frame.planId))
       }
     }
     case "compaction_update": {
@@ -771,14 +771,14 @@ function fold(session: Session, update: acp.SessionUpdate, options: ApplyOptions
         session,
         "compaction",
         frame.compactionId,
-        base => ({
+        (base) => ({
           ...base,
           kind: "compaction",
           status: frame.status,
           summary: [],
           error: null
         }),
-        item => ({
+        (item) => ({
           ...item,
           status: frame.status,
           summary: frame.summary === undefined ? item.summary : frame.summary === null ? [] : frame.summary.slice(),
@@ -793,8 +793,12 @@ function fold(session: Session, update: acp.SessionUpdate, options: ApplyOptions
         session,
         "compaction",
         frame.compactionId,
-        base => ({ ...base, kind: "compaction", status: "in_progress", summary: [], error: null }),
-        item => ({ ...item, summary: [...item.summary, frame.content], _meta: patchChunkMeta(item._meta, frame._meta) })
+        (base) => ({ ...base, kind: "compaction", status: "in_progress", summary: [], error: null }),
+        (item) => ({
+          ...item,
+          summary: [...item.summary, frame.content],
+          _meta: patchChunkMeta(item._meta, frame._meta)
+        })
       )
     }
     case "config_option_update": {

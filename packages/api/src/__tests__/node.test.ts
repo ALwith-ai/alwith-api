@@ -22,7 +22,7 @@ describe.skipIf(!binary)("ProcessRuntimeClient", () => {
       stderr: "ignore"
     })
     const seen: string[] = []
-    await port.onInbound(payload => seen.push(...payload.lines))
+    await port.onInbound((payload) => seen.push(...payload.lines))
     await port.ping()
     expect(await port.runStates()).toEqual([])
     await port.start("cat", { engine: "cat" })
@@ -34,9 +34,9 @@ describe.skipIf(!binary)("ProcessRuntimeClient", () => {
     })
     await port.send("cat", prompt)
     const deadline = Date.now() + 5000
-    while (seen.length === 0 && Date.now() < deadline) await new Promise(r => setTimeout(r, 20))
+    while (seen.length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20))
     expect(seen[0]).toContain("session/prompt")
-    const exited = new Promise(resolve => port.onProcessExit(resolve))
+    const exited = new Promise((resolve) => port.onProcessExit(resolve))
     port.close()
     await exited
     await expect(port.ping()).rejects.toThrow("exited")
@@ -54,7 +54,7 @@ describe("ProcessRuntimeClient failed spawn", () => {
       }
       const port = new ProcessRuntimeClient({ binary: executable, engines: {}, stderr: "ignore" })
       let notifications = 0
-      const exited = new Promise<void>(resolve =>
+      const exited = new Promise<void>((resolve) =>
         port.onProcessExit(() => {
           notifications++
           resolve()
@@ -63,7 +63,7 @@ describe("ProcessRuntimeClient failed spawn", () => {
       try {
         await expect(port.ping()).rejects.toThrow()
         await exited
-        await new Promise(resolve => setTimeout(resolve, 20))
+        await new Promise((resolve) => setTimeout(resolve, 20))
         expect(notifications).toBe(1)
         await expect(port.ping()).rejects.toThrow()
       } finally {

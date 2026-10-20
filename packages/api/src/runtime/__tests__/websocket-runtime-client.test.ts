@@ -66,7 +66,7 @@ async function waitFor(check: () => void, timeoutMs = 2000): Promise<void> {
       return
     } catch (error) {
       if (Date.now() > deadline) throw error
-      await new Promise(resolve => setTimeout(resolve, 5))
+      await new Promise((resolve) => setTimeout(resolve, 5))
     }
   }
 }
@@ -209,7 +209,7 @@ describe("WebSocketRuntimeClient", () => {
     MemoryWebSocket.instance.receive({ id: 1, result: [], error: null })
     await request
     MemoryWebSocket.instance.close()
-    await new Promise(resolve => setTimeout(resolve, 400))
+    await new Promise((resolve) => setTimeout(resolve, 400))
     expect(MemoryWebSocket.instances).toHaveLength(1)
   })
 

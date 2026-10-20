@@ -39,7 +39,7 @@ describe("receiving requests", () => {
     requests.receive(permission(1, "s1", "t1"))
     requests.receive(form(2, "s1", "e1"))
     requests.receive(permission(3, "s2", "t2"))
-    expect(requests.list().map(r => r.kind)).toEqual(["permission", "elicitation", "permission"])
+    expect(requests.list().map((r) => r.kind)).toEqual(["permission", "elicitation", "permission"])
     expect(requests.forSession("s1")).toHaveLength(2)
     expect(requests.permissionFor("t2")?.sessionId).toBe("s2")
     expect(requests.elicitation("e1")?.key).toBe("2")
@@ -105,7 +105,7 @@ describe("answering", () => {
   test("a newly booked entry is notified on its own; answering is not notified", () => {
     const { requests } = ledger()
     const received: string[] = []
-    requests.onReceived(request => received.push(`${request.kind}:${request.key}`))
+    requests.onReceived((request) => received.push(`${request.kind}:${request.key}`))
     requests.receive(permission(1, "s", "t"))
     requests.receive(form(2, "s", "e"))
     requests.answerPermission("t", { outcome: "cancelled" })
@@ -115,7 +115,7 @@ describe("answering", () => {
   test("every change to the book notifies once", () => {
     const { requests } = ledger()
     const seen: number[] = []
-    requests.onChange(pending => seen.push(pending.length))
+    requests.onChange((pending) => seen.push(pending.length))
     requests.receive(permission(1, "s", "t"))
     requests.answerPermission("t", { outcome: "cancelled" })
     expect(seen).toEqual([1, 0])
@@ -126,7 +126,7 @@ describe("agent withdrawal and completion", () => {
   test("$/cancel_request: replies -32800, leaves the book and tells the app to close the dialog; an unknown id is a no-op", () => {
     const { requests, sent } = ledger()
     const withdrawn: string[] = []
-    requests.onWithdrawn(request => withdrawn.push(request.key))
+    requests.onWithdrawn((request) => withdrawn.push(request.key))
     requests.receive(permission(1, "s", "t"))
     requests.onNotification("$/cancel_request", { requestId: 1 })
     expect(sent).toEqual([
@@ -164,7 +164,7 @@ describe("Stop and release", () => {
       { id: 1, result: { outcome: { outcome: "cancelled" } }, error: undefined },
       { id: 2, result: { action: "cancel" }, error: undefined }
     ])
-    expect(requests.list().map(r => r.key)).toEqual(["3"])
+    expect(requests.list().map((r) => r.key)).toEqual(["3"])
   })
 
   test("release: answers nothing and returns the released entries", () => {
@@ -172,7 +172,7 @@ describe("Stop and release", () => {
     requests.receive(permission(1, "s", "a"))
     requests.receive(form(2, null))
     const released = requests.release()
-    expect(released.map(r => r.key)).toEqual(["1", "2"])
+    expect(released.map((r) => r.key)).toEqual(["1", "2"])
     expect(sent).toEqual([])
     expect(requests.list()).toEqual([])
   })

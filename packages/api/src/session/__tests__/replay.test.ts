@@ -71,7 +71,7 @@ describe("record position", () => {
     })
     store.endReplay("s", { replayId: "r1", after: 3, cut: 9 })
     const caughtUp = store.get("s")
-    expect(caughtUp.items.map(item => item.id)).toEqual(["u", "m"])
+    expect(caughtUp.items.map((item) => item.id)).toEqual(["u", "m"])
     expect(caughtUp.items[1]?.replayed).toBe(true)
     expect(caughtUp.appliedThrough).toBe(9)
     expect(caughtUp.restoring).toBe(false)

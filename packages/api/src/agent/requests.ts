@@ -62,7 +62,7 @@ export class AgentRequests {
   }
 
   forSession(sessionId: string): PendingRequest[] {
-    return this.list().filter(request => request.sessionId === sessionId)
+    return this.list().filter((request) => request.sessionId === sessionId)
   }
 
   get(key: string): PendingRequest | undefined {

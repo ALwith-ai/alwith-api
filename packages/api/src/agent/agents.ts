@@ -138,7 +138,7 @@ export class Agent {
     this.engine = engine
     this.initialized = initialized
     let resolve: () => void = () => {}
-    this.exited = new Promise<void>(r => {
+    this.exited = new Promise<void>((r) => {
       resolve = r
     })
     this.resolveExited = resolve
@@ -176,16 +176,16 @@ export class Agent {
   /** @internal Attaches the three Runtime subscriptions; only once. */
   async listen(): Promise<void> {
     if (this.unlisten) return
-    const offNotification = await this.port.onAcpNotification(notification => {
+    const offNotification = await this.port.onAcpNotification((notification) => {
       if (notification.agentId !== this.agentId) return
       for (const handler of this.notificationHandlers) handler(notification.method, notification.params)
     })
-    const offRequest = await this.port.onAcpAgentRequest(request => {
+    const offRequest = await this.port.onAcpAgentRequest((request) => {
       if (request.agentId !== this.agentId) return
       for (const handler of this.requestHandlers)
         handler({ id: request.id, method: request.method, params: request.params })
     })
-    const offExit = await this.port.onExit(exit => {
+    const offExit = await this.port.onExit((exit) => {
       if (exit.agentId === this.agentId) this.gone("agent exited")
     })
     this.unlisten = () => {
@@ -228,7 +228,7 @@ export class Agent {
       signal?.addEventListener("abort", onAbort, { once: true })
       this.inflight.set(id, { method, fail })
       this.port.acpRequest<T>(this.agentId, method, params, { id }).then(
-        result => {
+        (result) => {
           if (settled) return
           settle()
           resolve(result)
@@ -268,7 +268,7 @@ export class Agent {
     try {
       await this.port.stop(this.agentId)
       const agents = await this.port.agents()
-      if (agents.some(agent => agent.agentId === this.agentId)) await exited
+      if (agents.some((agent) => agent.agentId === this.agentId)) await exited
     } finally {
       this.gone("agent stopped")
     }

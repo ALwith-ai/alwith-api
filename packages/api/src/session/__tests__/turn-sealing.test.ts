@@ -4,7 +4,7 @@ import { applyUpdate, createSession, type FoldPolicy, INTERRUPTED, markInterrupt
 import { SessionStore } from "../store"
 
 function tool(session: ReturnType<typeof createSession>, id: string): ToolItem {
-  const item = session.items.find(entry => entry.kind === "tool" && entry.id === id)
+  const item = session.items.find((entry) => entry.kind === "tool" && entry.id === id)
   if (!item || item.kind !== "tool") throw new Error(`no tool ${id}`)
   return item
 }
@@ -30,7 +30,7 @@ function idle(session: ReturnType<typeof createSession>, policy?: FoldPolicy) {
 
 /** alwith-cli's rule: background runs are marked in `_meta.alwith.runInBackground`; Monitor can only be recognised by tool name. */
 const alwith: FoldPolicy = {
-  outlivesTurn: entry => {
+  outlivesTurn: (entry) => {
     const meta = entry._meta?.alwith
     const background =
       typeof meta === "object" && meta !== null && (meta as { runInBackground?: unknown }).runInBackground === true
@@ -173,7 +173,7 @@ describe("tool output as delta or full", () => {
 /** alwith-cli's parentage rule. */
 const alwithWithParents: FoldPolicy = {
   ...alwith,
-  parentOf: entry => {
+  parentOf: (entry) => {
     const meta = entry._meta?.claudeCode
     const parent =
       typeof meta === "object" && meta !== null ? (meta as { parentToolUseId?: unknown }).parentToolUseId : null

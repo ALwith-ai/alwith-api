@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test"
 import { FrameRuntimeClient } from "../frame-runtime-client"
 import { RuntimeErrorCode } from "../types"
 
-const flush = () => new Promise<void>(resolve => setTimeout(resolve, 0))
+const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
 /** A transport that records writes and lets the test push frames back. */
 class MemoryPort extends FrameRuntimeClient<{ engine: string }> {
@@ -78,9 +78,9 @@ describe("FrameRuntimeClient", () => {
     const lines: unknown[] = []
     const states: unknown[] = []
     const custom: unknown[] = []
-    await port.onInbound(payload => lines.push(payload))
-    await port.onRunStates(sessions => states.push(sessions))
-    port.onEvent("lagged", event => custom.push(event))
+    await port.onInbound((payload) => lines.push(payload))
+    await port.onRunStates((sessions) => states.push(sessions))
+    port.onEvent("lagged", (event) => custom.push(event))
     port.push({ type: "inbound", agentId: "a", lines: ["{}"] })
     port.push({ type: "runStates", sessions: [] })
     port.push({ type: "lagged", dropped: 3 })
@@ -97,12 +97,12 @@ describe("FrameRuntimeClient", () => {
     const port = new MemoryPort()
     const notifications: unknown[] = []
     const requests: unknown[] = []
-    await port.onAcpNotification(n => notifications.push(n))
-    await port.onAcpAgentRequest(r => requests.push(r))
+    await port.onAcpNotification((n) => notifications.push(n))
+    await port.onAcpAgentRequest((r) => requests.push(r))
     const session = port.sessionNew("a", "/work", [], { alwith: { maxBudgetUsd: 1 } })
     const turn = port.prompt("a", "s-1", [{ type: "text", text: "hi" }])
     await flush()
-    expect(port.written.map(line => JSON.parse(line))).toEqual([
+    expect(port.written.map((line) => JSON.parse(line))).toEqual([
       {
         id: 1,
         method: "sessionNew",
@@ -149,12 +149,12 @@ describe("in order, no duplicates: missed frames are refilled from the journal",
       params: { sessionId: "s-1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } }
     })
   })
-  const sequencesOf = (events: Array<{ sequence?: number }>) => events.map(event => event.sequence)
+  const sequencesOf = (events: Array<{ sequence?: number }>) => events.map((event) => event.sequence)
 
   test("a sequence gap: asks the Runtime for the missing range first, then delivers what follows", async () => {
     const port = new MemoryPort()
     const seen: Array<{ sequence?: number }> = []
-    await port.onAcpNotification(n => seen.push(n))
+    await port.onAcpNotification((n) => seen.push(n))
     port.push(update(0))
     port.push(update(1))
     port.push(update(3))
@@ -176,7 +176,7 @@ describe("in order, no duplicates: missed frames are refilled from the journal",
   test("live frames arriving during a refill queue behind it instead of jumping ahead", async () => {
     const port = new MemoryPort()
     const seen: Array<{ sequence?: number }> = []
-    await port.onAcpNotification(n => seen.push(n))
+    await port.onAcpNotification((n) => seen.push(n))
     port.push(update(0))
     port.push(update(2))
     await flush()
@@ -191,8 +191,8 @@ describe("in order, no duplicates: missed frames are refilled from the journal",
     const port = new MemoryPort()
     const seen: Array<{ sequence?: number }> = []
     const gaps: unknown[] = []
-    await port.onAcpNotification(n => seen.push(n))
-    port.onGap(gap => gaps.push(gap))
+    await port.onAcpNotification((n) => seen.push(n))
+    port.onGap((gap) => gaps.push(gap))
     port.push(update(0))
     port.push(update(5))
     await flush()
@@ -206,7 +206,7 @@ describe("in order, no duplicates: missed frames are refilled from the journal",
   test("lagged: when the Runtime reports loss, every followed session refills from its last seen sequence", async () => {
     const port = new MemoryPort()
     const seen: Array<{ sequence?: number }> = []
-    await port.onAcpNotification(n => seen.push(n))
+    await port.onAcpNotification((n) => seen.push(n))
     port.push(update(0))
     port.push({ type: "lagged", dropped: 2 })
     await flush()
@@ -224,7 +224,7 @@ describe("in order, no duplicates: missed frames are refilled from the journal",
   test("duplicates are dropped; a sequence restarting at 0 means the engine replayed history and is accepted", () => {
     const port = new MemoryPort()
     const seen: Array<{ sequence?: number }> = []
-    void port.onAcpNotification(n => seen.push(n))
+    void port.onAcpNotification((n) => seen.push(n))
     port.push(update(0))
     port.push(update(1))
     port.push(update(1))
@@ -238,8 +238,8 @@ describe("in order, no duplicates: missed frames are refilled from the journal",
     const outbound: unknown[] = []
     const requests: unknown[] = []
     await port.onAcpNotification(() => undefined)
-    await port.onOutbound(line => outbound.push(line))
-    await port.onAcpAgentRequest(r => requests.push(r))
+    await port.onOutbound((line) => outbound.push(line))
+    await port.onAcpAgentRequest((r) => requests.push(r))
     port.push(update(0))
     port.push(update(3))
     await flush()

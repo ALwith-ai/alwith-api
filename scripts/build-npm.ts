@@ -73,7 +73,7 @@ const result = program.emit(undefined, undefined, undefined, false, {
 })
 if (result.emitSkipped || result.diagnostics.length) throw new Error("Declaration/JS emit failed")
 function walk(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap(e =>
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
     e.isDirectory() ? walk(resolve(dir, e.name)) : [resolve(dir, e.name)]
   )
 }
@@ -85,7 +85,7 @@ for (const file of walk(src)) {
     writeFileSync(target, readFileSync(file))
   }
 }
-for (const file of walk(dist).filter(f => f.endsWith(".js"))) {
+for (const file of walk(dist).filter((f) => f.endsWith(".js"))) {
   const built = await Bun.build({
     entrypoints: [file],
     target: "browser",

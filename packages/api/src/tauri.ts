@@ -24,7 +24,7 @@ export class TauriRuntimeClient<Launch = unknown> extends FrameRuntimeClient<Lau
     this.connecting ??= (async () => {
       try {
         // Subscribe before start so no batch emitted during startup is missed.
-        const stopLines = await listen<string[]>(LINES_EVENT, event => {
+        const stopLines = await listen<string[]>(LINES_EVENT, (event) => {
           for (const line of event.payload) {
             const frame = JSON.parse(line) as { type?: string; id?: unknown; connectionId?: string }
             if (frame.type === undefined && frame.id !== undefined && frame.connectionId !== this.connectionId) continue

@@ -77,7 +77,7 @@ export class ProcessRuntimeClient<Launch = unknown> extends FrameRuntimeClient<L
       this.child = child
       let settled = false
       const lines = createInterface({ input: child.stdout! })
-      lines.on("line", line => {
+      lines.on("line", (line) => {
         if (!settled) {
           try {
             const value = JSON.parse(line) as { type?: string }
@@ -92,7 +92,7 @@ export class ProcessRuntimeClient<Launch = unknown> extends FrameRuntimeClient<L
         }
         this.receive(line)
       })
-      child.once("error", error => {
+      child.once("error", (error) => {
         if (!settled) {
           settled = true
           reject(error)

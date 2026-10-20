@@ -8,8 +8,8 @@ export function isAlwithBackgroundTool(tool: ToolItem): boolean {
 
 /** The alwith-cli dialect, shared by every app consuming that engine. */
 export const alwithFoldPolicy: FoldPolicy = {
-  outlivesTurn: tool => isAlwithBackgroundTool(tool) || tool.name === "Monitor",
-  parentOf: tool => {
+  outlivesTurn: (tool) => isAlwithBackgroundTool(tool) || tool.name === "Monitor",
+  parentOf: (tool) => {
     const parent = (tool._meta as AlwithMeta | null)?.claudeCode?.parentToolUseId
     return typeof parent === "string" ? parent : null
   },

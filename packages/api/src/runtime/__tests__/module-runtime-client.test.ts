@@ -9,7 +9,7 @@ function harness(handle: ModuleRequestHandler) {
   const output = new PassThrough()
   const frames: Array<Record<string, any>> = []
   const readers: Array<(frame: Record<string, any>) => void> = []
-  createInterface({ input: output }).on("line", line => {
+  createInterface({ input: output }).on("line", (line) => {
     const value = JSON.parse(line)
     const reader = readers.shift()
     if (reader) reader(value)
@@ -23,7 +23,7 @@ function harness(handle: ModuleRequestHandler) {
     frames,
     send: (value: unknown) => input.write(JSON.stringify(value) + "\n"),
     next: (): Promise<Record<string, any>> =>
-      frames.length ? Promise.resolve(frames.shift()!) : new Promise(resolve => readers.push(resolve))
+      frames.length ? Promise.resolve(frames.shift()!) : new Promise((resolve) => readers.push(resolve))
   }
 }
 
@@ -43,7 +43,7 @@ test("a host call can await a reverse Runtime request with the same ID", async (
 })
 
 test("a failed handler preserves structured errors and does not poison later requests", async () => {
-  const port = harness(method => {
+  const port = harness((method) => {
     if (method === "unknown") throw new ModuleRequestError(-32601, "Unknown method", { method })
     if (method === "crash") throw new Error("secret request content")
     return "ok"
@@ -68,18 +68,18 @@ test("EOF rejects pending Runtime calls, aborts handlers and suppresses late res
   let signal!: AbortSignal
   const port = harness((_, __, current) => {
     signal = current
-    return new Promise<string>(resolve => {
+    return new Promise<string>((resolve) => {
       finish = resolve
     })
   })
   port.send({ id: 2, method: "slow" })
-  const pending = port.client.request("ping").catch(error => error)
+  const pending = port.client.request("ping").catch((error) => error)
   await port.next()
   port.input.end()
   expect(await pending).toBeInstanceOf(Error)
   expect(signal.aborted).toBe(true)
   finish("late")
-  await new Promise(resolve => setImmediate(resolve))
+  await new Promise((resolve) => setImmediate(resolve))
   expect(port.frames).toEqual([])
   await expect(port.client.request("ping")).rejects.toThrow("closed")
 })
@@ -89,7 +89,7 @@ test("module events and Runtime events share the pipe without becoming requests"
     throw new Error("not a request")
   })
   const events: unknown[] = []
-  port.client.onEvent("module", event => events.push(event))
+  port.client.onEvent("module", (event) => events.push(event))
   try {
     port.send({ type: "module", event: { type: "progress" } })
     expect(events).toEqual([{ type: "module", event: { type: "progress" } }])
@@ -106,7 +106,7 @@ test("request cancellation aborts only its handler and suppresses a late result"
   const port = harness((method, _, current) => {
     if (method === "healthy") return "ok"
     signal = current
-    return new Promise<string>(resolve => {
+    return new Promise<string>((resolve) => {
       finish = resolve
     })
   })
@@ -117,7 +117,7 @@ test("request cancellation aborts only its handler and suppresses a late result"
     finish("late")
     port.send({ id: 2, method: "healthy" })
     expect(await port.next()).toEqual({ id: 2, result: "ok" })
-    await new Promise(resolve => setImmediate(resolve))
+    await new Promise((resolve) => setImmediate(resolve))
     expect(port.frames).toEqual([])
     expect(port.client.signal.aborted).toBe(false)
   } finally {

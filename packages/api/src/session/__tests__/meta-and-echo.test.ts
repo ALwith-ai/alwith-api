@@ -8,7 +8,7 @@ function apply(session: ReturnType<typeof createSession>, update: Record<string,
 }
 
 function item<T extends MessageItem | ToolItem>(session: ReturnType<typeof createSession>, id: string): T {
-  const found = session.items.find(entry => entry.id === id)
+  const found = session.items.find((entry) => entry.id === id)
   if (!found) throw new Error(`no item ${id}`)
   return found as T
 }
@@ -159,7 +159,7 @@ describe("locally shown user messages and their claim by the agent's echo", () =
     })
 
     session = acknowledgePrompt(session, "local-1", "agent-1")
-    expect(session.items.map(entry => entry.id)).toEqual(["notice-1", "agent-1"])
+    expect(session.items.map((entry) => entry.id)).toEqual(["notice-1", "agent-1"])
     const prompt = item<MessageItem>(session, "agent-1")
     expect(prompt.echo).toBe("adopted")
     expect(prompt.content).toEqual([{ type: "text", text: "hello" }])
@@ -225,7 +225,7 @@ describe("locally shown user messages and their claim by the agent's echo", () =
     })
     session = apply(session, { sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" })
     session = addPrompt(session, [{ type: "text", text: "two" }], "l2")
-    expect(session.items.map(entry => entry.id)).toEqual(["l1", "a1", "l2"])
+    expect(session.items.map((entry) => entry.id)).toEqual(["l1", "a1", "l2"])
     expect(item<MessageItem>(session, "l1").echo).toBe("pending")
   })
 
@@ -236,7 +236,7 @@ describe("locally shown user messages and their claim by the agent's echo", () =
     expect(store.get("s").items[0]?.id).toBe(localId)
     store.accept("s", { sessionUpdate: "user_message", messageId: "agent-1", content: [] } as never)
     store.acknowledgePrompt("s", localId, "agent-1")
-    expect(store.get("s").items.map(entry => entry.id)).toEqual(["agent-1"])
+    expect(store.get("s").items.map((entry) => entry.id)).toEqual(["agent-1"])
   })
 })
 
@@ -249,15 +249,15 @@ test("identical concurrent prompts are matched by response, including reversed r
   expect(item<MessageItem>(session, "local-2").echo).toBe("pending")
   session = acknowledgePrompt(session, "local-2", "remote-2")
   session = acknowledgePrompt(session, "local-1", "remote-1")
-  expect(session.items.map(item => item.id)).toEqual(["remote-1", "remote-2"])
-  expect(session.items.every(item => item.kind === "user" && item.content[0]?.type === "text")).toBe(true)
+  expect(session.items.map((item) => item.id)).toEqual(["remote-1", "remote-2"])
+  expect(session.items.every((item) => item.kind === "user" && item.content[0]?.type === "text")).toBe(true)
 })
 
 test("an unrelated live user message never consumes an optimistic prompt", () => {
   let session = addPrompt(createSession("s", "/tmp"), [], "local")
   session = apply(session, { sessionUpdate: "user_message", messageId: "other-client", content: [] })
   session = acknowledgePrompt(session, "local", "own")
-  expect(session.items.map(item => item.id)).toEqual(["own", "other-client"])
+  expect(session.items.map((item) => item.id)).toEqual(["own", "other-client"])
 })
 
 test("the same remote ID cannot be assigned to two requests", () => {
@@ -281,7 +281,7 @@ test("queued local messages do not capture the current answer or its idle usage"
   } as never)
   store.accept("s", { sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" } as never)
   const [a, b] = store.turns("s")
-  expect(a?.entries.map(item => item.id)).toEqual(["answer"])
+  expect(a?.entries.map((item) => item.id)).toEqual(["answer"])
   expect(a?.endedAt).not.toBeNull()
   expect(b?.prompt?.id).toBe(second)
   expect(b?.entries).toEqual([])

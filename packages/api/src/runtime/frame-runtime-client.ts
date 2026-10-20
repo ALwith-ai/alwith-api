@@ -313,7 +313,7 @@ export abstract class FrameRuntimeClient<Launch = unknown> implements RuntimeCli
    * unwraps and fans out by module name, so an app never sees the envelope.
    */
   onModuleEvent(module: string, handler: (event: Record<string, unknown>) => void): () => void {
-    return this.onEvent("module", raw => {
+    return this.onEvent("module", (raw) => {
       if (raw.module !== module) return
       const event = raw.event
       if (event && typeof event === "object") handler(event as Record<string, unknown>)
@@ -377,7 +377,7 @@ export abstract class FrameRuntimeClient<Launch = unknown> implements RuntimeCli
   protected restoreSubscriptions(): void {
     if (this.runStateHandlers.size > 0) {
       void this.runStates()
-        .then(states => {
+        .then((states) => {
           for (const handler of this.runStateHandlers) handler(states)
         })
         .catch(() => undefined)

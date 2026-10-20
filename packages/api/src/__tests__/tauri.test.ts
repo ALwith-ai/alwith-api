@@ -32,7 +32,7 @@ test("reloaded windows with identical request ids ignore each other's replies bu
   const pending = first.version()
   const fresh = second.version()
   const seen: unknown[] = []
-  await second.onAcpAgentRequest(value => seen.push(value))
+  await second.onAcpAgentRequest((value) => seen.push(value))
   for (let i = 0; requests.length < 2 && i < 100; i++) await Bun.sleep(1)
   expect(requests).toHaveLength(2)
   expect(connections[0]).not.toBe(connections[1])
@@ -69,7 +69,7 @@ test("closing a connection rejects pending work and cannot restart its transport
   Object.defineProperty(globalThis, "window", { configurable: true, value: { crypto: globalThis.crypto } })
   let sent = false
   mockIPC(
-    cmd => {
+    (cmd) => {
       if (cmd === "runtime_send") sent = true
     },
     { shouldMockEvents: true }
@@ -89,7 +89,7 @@ test("closing during event subscription cannot start an orphan transport", async
   Object.defineProperty(globalThis, "window", { configurable: true, value: { crypto: globalThis.crypto } })
   let starts = 0
   mockIPC(
-    cmd => {
+    (cmd) => {
       if (cmd === "runtime_start") starts++
     },
     { shouldMockEvents: true }

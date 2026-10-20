@@ -31,7 +31,7 @@ export class ModuleRuntimeClient<Launch = unknown> extends FrameRuntimeClient<La
   constructor(private readonly options: ModuleRuntimeOptions) {
     super()
     this.lines = createInterface({ input: options.input, crlfDelay: Infinity })
-    this.lines.on("line", line => this.accept(line))
+    this.lines.on("line", (line) => this.accept(line))
     this.lines.once("close", () => this.close(new Error("Runtime module input closed")))
     options.input.on("error", this.streamError)
     options.output.on("error", this.streamError)
@@ -50,7 +50,7 @@ export class ModuleRuntimeClient<Launch = unknown> extends FrameRuntimeClient<La
   protected write(text: string): Promise<void> {
     if (this.signal.aborted) return Promise.reject(this.signal.reason)
     return new Promise((resolve, reject) => {
-      this.options.output.write(`${text}\n`, error => (error ? reject(error) : resolve()))
+      this.options.output.write(`${text}\n`, (error) => (error ? reject(error) : resolve()))
     })
   }
 

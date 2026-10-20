@@ -95,7 +95,7 @@ export function isArrayProperty(property: acp.ElicitationPropertySchema): proper
 export function textOf(blocks: acp.ContentBlock[]): string {
   return blocks
     .filter(isText)
-    .map(block => block.text)
-    .filter(text => text.length > 0)
+    .map((block) => block.text)
+    .filter((text) => text.length > 0)
     .join("\n")
 }

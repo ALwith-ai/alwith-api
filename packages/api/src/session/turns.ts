@@ -68,7 +68,7 @@ export function turns(session: Session, policy: FoldPolicy = {}): Turn[] {
   let current: Turn | null = null
   const optimistic = (item: Item) => item.kind === "user" && (item.echo === "pending" || item.echo === "acknowledged")
   // Optimistic messages cannot reassign streamed output from an already inserted prompt.
-  const ordered = [...session.items.filter(item => !optimistic(item)), ...session.items.filter(optimistic)]
+  const ordered = [...session.items.filter((item) => !optimistic(item)), ...session.items.filter(optimistic)]
   for (const item of ordered) {
     if (isPrompt(item)) {
       current = {

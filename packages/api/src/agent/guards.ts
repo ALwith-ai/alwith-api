@@ -61,7 +61,7 @@ export function configOptionRequest(
   configId: string,
   value: string | boolean
 ): acp.SetSessionConfigOptionRequest {
-  const option = configOptions.find(candidate => candidate.configId === configId)
+  const option = configOptions.find((candidate) => candidate.configId === configId)
   if (option === undefined) throw new ConfigOptionError(`session ${sessionId} offers no config option ${configId}`)
   if (isBooleanOption(option)) {
     if (typeof value !== "boolean")
@@ -70,8 +70,8 @@ export function configOptionRequest(
   }
   if (isSelectOption(option)) {
     const values = isGroupedSelect(option.options)
-      ? option.options.flatMap(group => group.options.map(choice => choice.value))
-      : option.options.map(choice => choice.value)
+      ? option.options.flatMap((group) => group.options.map((choice) => choice.value))
+      : option.options.map((choice) => choice.value)
     if (typeof value !== "string" || !values.includes(value))
       throw new ConfigOptionError(
         `${configId} offers ${values.join(", ")}; ${JSON.stringify(value)} is not one of them`

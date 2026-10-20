@@ -37,7 +37,7 @@ export class PromptTracker {
           if (!current.pending.has(pending)) throw new Error("Prompt connection retired before sending")
           return send()
         })
-        .then(response => {
+        .then((response) => {
           if (!current.pending.has(pending)) return
           if (typeof response.messageId !== "string" || response.messageId.length === 0) {
             throw new Error("session/prompt returned no messageId")
@@ -98,8 +98,8 @@ export class PromptTracker {
       return
     }
     // Before responses arrive, retain IDs across idle so notification-first transports work.
-    if ([...session.pending].some(pending => pending.messageId === null)) return
-    const pendingIds = new Set([...session.pending].map(pending => pending.messageId))
+    if ([...session.pending].some((pending) => pending.messageId === null)) return
+    const pendingIds = new Set([...session.pending].map((pending) => pending.messageId))
     for (const id of session.insertions.keys()) if (!pendingIds.has(id)) session.insertions.delete(id)
   }
 }

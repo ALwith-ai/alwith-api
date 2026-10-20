@@ -58,7 +58,7 @@ export class WebSocketRuntimeClient<Launch = unknown> extends FrameRuntimeClient
         if (this.connectedOnce) this.restoreSubscriptions()
         else this.connectedOnce = true
       })
-      socket.addEventListener("message", event => this.receive(String(event.data)))
+      socket.addEventListener("message", (event) => this.receive(String(event.data)))
       socket.addEventListener(
         "error",
         () => {

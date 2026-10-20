@@ -10,7 +10,7 @@ import type {
 } from "../../runtime"
 import { AgentGoneError, Agents, ProtocolVersionError, RequestCancelledError } from "../agents"
 
-const flush = () => new Promise<void>(resolve => setTimeout(resolve, 0))
+const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
 /** Only what Agents touches: start/stop, attach, handshake, the three ACP verbs, the three subscriptions. Nothing else is implemented. */
 class FakeRuntime implements Partial<RuntimeClient<{ engine: string }>> {
@@ -46,7 +46,7 @@ class FakeRuntime implements Partial<RuntimeClient<{ engine: string }>> {
     for (const handler of this.exitHandlers) handler({ agentId })
   }
   async agents(): Promise<RuntimeAgentInfo[]> {
-    return [...this.running].map(agentId => ({
+    return [...this.running].map((agentId) => ({
       agentId,
       pid: 1,
       provider: "",
@@ -71,7 +71,7 @@ class FakeRuntime implements Partial<RuntimeClient<{ engine: string }>> {
     }
     this.calls.push(`request ${agentId} ${method}`)
     if (this.hang.has(method))
-      return new Promise<T>(resolve => this.hung.push({ resolve: resolve as (v: unknown) => void }))
+      return new Promise<T>((resolve) => this.hung.push({ resolve: resolve as (v: unknown) => void }))
     return Promise.resolve(this.answer(method, params) as T)
   }
   async acpNotify(agentId: string, method: string, params?: unknown): Promise<void> {
@@ -124,8 +124,8 @@ describe("start and attach", () => {
     expect(runtime.calls).toEqual(["start a1", "initialize a1 test-app"])
     expect(agent.initialized).toMatchObject({ info: { name: "fake-agent" } })
     const seen: string[] = []
-    agent.onNotification(method => seen.push(method))
-    agent.onAgentRequest(request => seen.push(`req ${request.method}`))
+    agent.onNotification((method) => seen.push(method))
+    agent.onAgentRequest((request) => seen.push(`req ${request.method}`))
     runtime.emitNotification("a1", "session/update", {})
     runtime.emitNotification("other", "session/update", {})
     runtime.emitRequest("a1", 1, "session/request_permission", {})
@@ -141,7 +141,7 @@ describe("start and attach", () => {
     expect(second.alive).toBe(true)
     expect(second.engine).toBe("dsh")
     // The refused start also reached the Runtime (which refused it), so two starts are recorded before the stop
-    expect(runtime.calls.filter(c => !c.startsWith("initialize"))).toEqual([
+    expect(runtime.calls.filter((c) => !c.startsWith("initialize"))).toEqual([
       "start a1",
       "start a1",
       "stop a1",
@@ -188,7 +188,7 @@ describe("start and attach", () => {
     const one = await agents.attach("s1")
     const two = await agents.attach("s2")
     expect(two?.agent).toBe(one?.agent)
-    expect(runtime.calls.filter(c => c.startsWith("initialize"))).toHaveLength(1)
+    expect(runtime.calls.filter((c) => c.startsWith("initialize"))).toHaveLength(1)
   })
 })
 
@@ -199,7 +199,7 @@ describe("requests", () => {
     runtime.hang.add("session/prompt")
     const turn = agent.request("session/prompt", {})
     const exits: string[] = []
-    agents.onExit(a => exits.push(a.agentId))
+    agents.onExit((a) => exits.push(a.agentId))
     runtime.exit("a1")
     await expect(turn).rejects.toBeInstanceOf(AgentGoneError)
     await flush()
@@ -213,7 +213,7 @@ describe("requests", () => {
     const { runtime, agents } = make()
     const agent = await agents.start("a1", { engine: "alwith" })
     const exits: string[] = []
-    agents.onExit(a => exits.push(a.agentId))
+    agents.onExit((a) => exits.push(a.agentId))
     await agent.stop()
     expect(agent.alive).toBe(false)
     expect(runtime.running.has("a1")).toBe(false)
@@ -329,7 +329,7 @@ describe("abandoned requests", () => {
     }) as typeof runtime.acpRequest
     await agent.request("session/list", {})
     await agent.request("session/list", {})
-    expect(seen.map(id => typeof id)).toEqual(["string", "string"])
+    expect(seen.map((id) => typeof id)).toEqual(["string", "string"])
     expect(seen[0]).not.toBe(seen[1])
   })
 })

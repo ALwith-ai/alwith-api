@@ -18,7 +18,7 @@ test("published archive contains the standalone Rust crate and JS exports, witho
   expect(files).toContain("package/rust/LICENSE")
   expect(files).toContain("package/dist/index.js")
   expect(files).toContain("package/dist/index.d.ts")
-  expect(files.filter(file => file.endsWith(".map") || (/\.tsx?$/.test(file) && !file.endsWith(".d.ts")))).toEqual([])
+  expect(files.filter((file) => file.endsWith(".map") || (/\.tsx?$/.test(file) && !file.endsWith(".d.ts")))).toEqual([])
   for (const file of ["src/lib.rs", "src/client.rs", "src/process.rs", "src/protocol.rs", "tests/runtime.rs"]) {
     const packed = execFileSync("tar", ["-xOf", archive, `package/rust/${file}`], { encoding: "utf8" })
     expect(packed).toBe(readFileSync(join(root, "crates/api", file), "utf8"))

@@ -24,7 +24,7 @@ test("a receipt does not finish a turn", async () => {
       () => sent.promise,
       () => acknowledged.resolve()
     )
-    .then(result => {
+    .then((result) => {
       finished = true
       return result
     })
@@ -42,7 +42,7 @@ test("echo and idle can both precede the response", async () => {
   const turn = tracker.run(
     "s",
     () => sent.promise,
-    response => {
+    (response) => {
       acknowledged = response.messageId
     }
   )
@@ -69,7 +69,7 @@ test("queued prompts do not finish at the previous idle boundary", async () => {
       () => second.promise,
       () => {}
     )
-    .then(value => {
+    .then((value) => {
       secondDone = true
       return value
     })
@@ -117,7 +117,7 @@ test("notice and another session's idle cannot complete a prompt", async () => {
       async () => receipt("m"),
       () => acknowledged.resolve()
     )
-    .then(value => {
+    .then((value) => {
       completed = true
       return value
     })

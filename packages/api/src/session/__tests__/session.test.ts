@@ -171,7 +171,7 @@ describe("chunks without a messageId", () => {
     feed({ sessionUpdate: "tool_call_update", toolCallId: "t", name: "Read", status: "completed" })
     feed({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "再搜" } })
     feed({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "完成" } })
-    const shape = session.items.map(item =>
+    const shape = session.items.map((item) =>
       item.kind === "user" || item.kind === "assistant" || item.kind === "thought"
         ? `${item.kind}:${textOf(item.content)}`
         : item.kind
@@ -202,7 +202,7 @@ describe("tool terminals", () => {
     })
     feed({ sessionUpdate: "terminal_update", terminalId: "term-9", command: "ls" })
     feed({ sessionUpdate: "terminal_update", terminalId: "call-1", command: "decoy" })
-    const tool = session.items.find(item => item.kind === "tool")
+    const tool = session.items.find((item) => item.kind === "tool")
     expect(tool?.kind === "tool" ? terminalOf(tool, session.terminals)?.command : null).toBe("ls")
   })
 
@@ -251,12 +251,12 @@ describe("ACP alpha.8", () => {
       messageId: "same",
       content: { type: "text", text: "thought" }
     })
-    expect(session.items.map(item => [item.kind, item.id])).toEqual([
+    expect(session.items.map((item) => [item.kind, item.id])).toEqual([
       ["user", "same"],
       ["assistant", "same"],
       ["thought", "same"]
     ])
-    expect([0, 1, 2].map(index => text(session, index))).toEqual(["user", "answer", "thought"])
+    expect([0, 1, 2].map((index) => text(session, index))).toEqual(["user", "answer", "thought"])
   })
   test("summary-first compaction preserves position, chunks, patch omission and explicit clears", () => {
     let session = createSession("s", "/tmp")
@@ -367,8 +367,8 @@ describe("markTerminated", () => {
       sessionUpdate: "session_info_update",
       _meta: { alwith: { seq: 3, instanceTerminated: { instanceId: "i-1", finalSeq: 2 } } }
     })
-    const tools = session.items.filter(item => item.kind === "tool") as ToolItem[]
-    expect(tools.map(tool => [tool.id, tool.status])).toEqual([
+    const tools = session.items.filter((item) => item.kind === "tool") as ToolItem[]
+    expect(tools.map((tool) => [tool.id, tool.status])).toEqual([
       ["t1", INTERRUPTED],
       ["t2", "completed"]
     ])
@@ -398,7 +398,7 @@ describe("markTerminated", () => {
       sessionUpdate: "session_info_update",
       _meta: { alwith: { seq: 6, instanceTerminated: { instanceId: "i-0", finalSeq: 2 } } }
     })
-    expect((session.items.find(item => item.id === "t3") as ToolItem).status).toBe("in_progress")
+    expect((session.items.find((item) => item.id === "t3") as ToolItem).status).toBe("in_progress")
     expect("u2" in session.turnEndedAt).toBe(false)
   })
 })

@@ -9,7 +9,7 @@ import { acknowledgePrompt, addPrompt, applyUpdate, type FoldPolicy, markInterru
 import { type Turn, turns } from "./turns"
 
 function decodeBase64(data: string): Uint8Array {
-  return Uint8Array.from(atob(data), character => character.charCodeAt(0))
+  return Uint8Array.from(atob(data), (character) => character.charCodeAt(0))
 }
 
 export class SessionStore {

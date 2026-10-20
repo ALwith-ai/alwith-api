@@ -29,7 +29,7 @@ function run(session: Session, toolCallId: string, extra: Record<string, unknown
 
 /** alwith-cli puts the tool that launched a step in `_meta.claudeCode.parentToolUseId`. */
 const alwith: FoldPolicy = {
-  parentOf: tool => {
+  parentOf: (tool) => {
     const claudeCode = tool._meta?.claudeCode
     const parent =
       typeof claudeCode === "object" && claudeCode !== null
@@ -53,9 +53,9 @@ describe("grouping by turn", () => {
     const result = turns(session)
     expect(result).toHaveLength(2)
     expect(result[0]!.prompt?.id).toBe("u1")
-    expect(result[0]!.entries.map(entry => entry.id)).toEqual(["a1", "t1"])
+    expect(result[0]!.entries.map((entry) => entry.id)).toEqual(["a1", "t1"])
     expect(result[1]!.prompt?.id).toBe("u2")
-    expect(result[1]!.entries.map(entry => entry.id)).toEqual(["a2"])
+    expect(result[1]!.entries.map((entry) => entry.id)).toEqual(["a2"])
   })
 
   test("when history starts with the agent speaking, the first turn has no user message", () => {
@@ -66,7 +66,7 @@ describe("grouping by turn", () => {
     const result = turns(session)
     expect(result).toHaveLength(2)
     expect(result[0]!.prompt).toBeNull()
-    expect(result[0]!.entries.map(entry => entry.id)).toEqual(["a0"])
+    expect(result[0]!.entries.map((entry) => entry.id)).toEqual(["a0"])
   })
 
   test("an empty session has no turns", () => {
@@ -99,9 +99,9 @@ describe("tool parentage", () => {
     session = run(session, "solo", {})
 
     const [turn] = turns(session, alwith)
-    expect(turn!.entries.map(entry => entry.id)).toEqual(["agent-1", "solo"])
+    expect(turn!.entries.map((entry) => entry.id)).toEqual(["agent-1", "solo"])
     const parent = turn!.entries[0]!
-    expect(parent.kind === "tool" && parent.children.map(child => child.id)).toEqual(["grep-1", "read-1"])
+    expect(parent.kind === "tool" && parent.children.map((child) => child.id)).toEqual(["grep-1", "read-1"])
   })
 
   test("without a rule everything stays flat; the package does not guess dialects", () => {
@@ -111,7 +111,7 @@ describe("tool parentage", () => {
     session = run(session, "grep-1", launchedBy("agent-1"))
 
     const [turn] = turns(session)
-    expect(turn!.entries.map(entry => entry.id)).toEqual(["agent-1", "grep-1"])
+    expect(turn!.entries.map((entry) => entry.id)).toEqual(["agent-1", "grep-1"])
   })
 
   test("a step whose parent is not in this history is treated as top level; vanishing is worse than misplacement", () => {
@@ -120,7 +120,7 @@ describe("tool parentage", () => {
     session = run(session, "grep-1", launchedBy("裁掉的那个"))
 
     const [turn] = turns(session, alwith)
-    expect(turn!.entries.map(entry => entry.id)).toEqual(["grep-1"])
+    expect(turn!.entries.map((entry) => entry.id)).toEqual(["grep-1"])
   })
 
   test("child tools find their parent across turns, so a late background subagent result does not start a new item", () => {
@@ -133,7 +133,7 @@ describe("tool parentage", () => {
     const result = turns(session, alwith)
     expect(result[1]!.entries).toHaveLength(0)
     const parent = result[0]!.entries[0]!
-    expect(parent.kind === "tool" && parent.children.map(child => child.id)).toEqual(["late"])
+    expect(parent.kind === "tool" && parent.children.map((child) => child.id)).toEqual(["late"])
   })
 
   test("parentage does not change session.items; the flat list stays exactly as the protocol sent it", () => {
@@ -145,6 +145,6 @@ describe("tool parentage", () => {
     turns(session, alwith)
 
     expect(session.items).toBe(before)
-    expect(session.items.map(item => item.id)).toEqual(["agent-1", "grep-1"])
+    expect(session.items.map((item) => item.id)).toEqual(["agent-1", "grep-1"])
   })
 })
