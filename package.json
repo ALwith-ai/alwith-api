@@ -14,7 +14,7 @@
   "devDependencies": {
     "@agentclientprotocol/sdk": "2.0.0",
     "@tauri-apps/api": "^2",
-    "@types/bun": "^1",
+    "@types/bun": "^1.4.3",
     "@types/node": "^24",
     "typescript": "^5",
     "typescript-compiler": "npm:typescript@5.9.3"
