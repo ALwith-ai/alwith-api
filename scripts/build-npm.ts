@@ -66,7 +66,7 @@ const rewrite = (context: import("typescript-compiler").TransformationContext) =
   return (file: import("typescript-compiler").SourceFile | import("typescript-compiler").Bundle) => {
     if (ts.isBundle(file)) throw new Error("Bundle emit is not used; files are emitted one by one")
     sourceFile = file.fileName
-    return ts.visitNode<import("typescript-compiler").SourceFile>(file, visit)
+    return ts.visitNode(file, visit, ts.isSourceFile)
   }
 }
 rmSync(dist, { recursive: true, force: true })
