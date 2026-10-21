@@ -71,7 +71,7 @@ export class PromptTracker {
       if (!session.insertions.has(messageId)) session.insertions.set(messageId, { completion: null })
     } else if (update.sessionUpdate === "state_update" && update.state === "idle") {
       for (const insertion of session.insertions.values()) {
-        if (insertion.completion === null) insertion.completion = update as PromptCompletion
+        insertion.completion ??= update as PromptCompletion
       }
       for (const pending of session.pending) {
         if (pending.messageId === null) continue

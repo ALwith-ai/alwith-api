@@ -5,7 +5,7 @@ import { SessionStore } from "../store"
 
 function tool(session: ReturnType<typeof createSession>, id: string): ToolItem {
   const item = session.items.find((entry) => entry.kind === "tool" && entry.id === id)
-  if (!item || item.kind !== "tool") throw new Error(`no tool ${id}`)
+  if (item?.kind !== "tool") throw new Error(`no tool ${id}`)
   return item
 }
 
@@ -289,7 +289,7 @@ describe("end time", () => {
     expect(tool(session, "a").endedAt).toBe(first)
   })
 
-  test("at turn end the time is recorded against the user message that started the turn and is readable in turns()", async () => {
+  test("at turn end the time is recorded against the user message that started the turn and is readable in turns()", () => {
     const store = new SessionStore()
     store.set(createSession("s", "/tmp"))
     const localId = store.addPrompt("s", [{ type: "text", text: "go" }])
@@ -305,7 +305,7 @@ describe("end time", () => {
     const [turn] = store.turns("s")
     expect(turn?.startedAt).not.toBeNull()
     expect(turn?.endedAt).not.toBeNull()
-    expect(turn!.endedAt!).toBeGreaterThanOrEqual(turn!.startedAt!)
+    expect(turn.endedAt!).toBeGreaterThanOrEqual(turn.startedAt!)
   })
 
   test("a replay from the start clears the previous run's turn times together with usage", () => {
@@ -340,9 +340,9 @@ describe("times strictly increase", () => {
       content: { type: "text", text: "2" }
     } as never)
     const [turn] = store.turns("s")
-    const [before, after] = turn!.entries
-    expect(before!.at).toBeLessThan(turn!.endedAt!)
-    expect(after!.at).toBeGreaterThan(turn!.endedAt!)
+    const [before, after] = turn.entries
+    expect(before.at).toBeLessThan(turn.endedAt!)
+    expect(after.at).toBeGreaterThan(turn.endedAt!)
   })
 
   test("a tool's final time is not earlier than its arrival, and later items are not earlier than it", () => {
@@ -362,8 +362,8 @@ describe("the end time is recorded only once", () => {
     store.acknowledgePrompt("s", localId, "user")
     store.accept("s", { sessionUpdate: "user_message", messageId: "user", content: [] } as never)
     store.accept("s", { sessionUpdate: "state_update", state: "idle", stopReason: "cancelled" } as never)
-    const first = store.turns("s")[0]!.endedAt
+    const first = store.turns("s")[0].endedAt
     store.accept("s", { sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" } as never)
-    expect(store.turns("s")[0]!.endedAt).toBe(first)
+    expect(store.turns("s")[0].endedAt).toBe(first)
   })
 })

@@ -114,7 +114,7 @@ test("notice and another session's idle cannot complete a prompt", async () => {
   const turn = tracker
     .run(
       "s",
-      async () => receipt("m"),
+      () => Promise.resolve(receipt("m")),
       () => acknowledged.resolve()
     )
     .then((value) => {
@@ -122,7 +122,7 @@ test("notice and another session's idle cannot complete a prompt", async () => {
       return value
     })
   await acknowledged.promise
-  tracker.accept("s", { sessionUpdate: "notice", severity: "warning", title: "advisory" } as SessionUpdate)
+  tracker.accept("s", { sessionUpdate: "notice", severity: "warning", title: "advisory" })
   tracker.accept("other", idle)
   await Promise.resolve()
   expect(completed).toBe(false)
@@ -135,7 +135,7 @@ test("disconnect rejects completion after a successful receipt", async () => {
   const acknowledged = Promise.withResolvers<void>()
   const turn = tracker.run(
     "s",
-    async () => receipt("m"),
+    () => Promise.resolve(receipt("m")),
     () => acknowledged.resolve()
   )
   const rejected = turn.catch((error: unknown) => error)
@@ -160,7 +160,7 @@ test("a late response after failure cannot acknowledge or finish a replacement r
   expect(await rejected).toBeInstanceOf(Error)
   const current = tracker.run(
     "s",
-    async () => receipt("new"),
+    () => Promise.resolve(receipt("new")),
     () => {}
   )
   old.resolve(receipt("old"))
@@ -175,7 +175,7 @@ test("pre-insertion errors reject without waiting for idle", async () => {
   await expect(
     tracker.run(
       "s",
-      async () => {
+      () => {
         throw new Error("rejected")
       },
       () => {}

@@ -11,8 +11,10 @@ class MemoryPort extends FrameRuntimeClient<{ engine: string }> {
   connects = 0
   failWrites = false
 
-  protected async connectTransport(): Promise<void> {
+  protected connectTransport(): Promise<void> {
     this.connects += 1
+
+    return Promise.resolve()
   }
 
   protected write(text: string): void {

@@ -84,7 +84,7 @@ describe("WebSocketRuntimeClient", () => {
     const socket = MemoryWebSocket.instance
     socket.open()
     await waitFor(() => expect(socket.sent).toHaveLength(1))
-    expect(JSON.parse(socket.sent[0]!)).toEqual({
+    expect(JSON.parse(socket.sent[0])).toEqual({
       id: 1,
       method: "setSessionTitle",
       params: { sessionId: "session-1", title: "券核销" }
@@ -106,7 +106,7 @@ describe("WebSocketRuntimeClient", () => {
     expect(socket.protocols).toEqual(["alwith-runtime-v1", "alwith-auth.secret"])
     socket.open()
     await waitFor(() => expect(socket.sent).toHaveLength(1))
-    expect(JSON.parse(socket.sent[0]!)).toEqual({ id: 1, method: "runStates" })
+    expect(JSON.parse(socket.sent[0])).toEqual({ id: 1, method: "runStates" })
     socket.receive({ id: 1, result: [], error: null })
     await expect(request).resolves.toEqual([])
   })
@@ -118,7 +118,7 @@ describe("WebSocketRuntimeClient", () => {
     const socket = MemoryWebSocket.instance
     socket.open()
     await waitFor(() => expect(socket.sent).toHaveLength(1))
-    expect(JSON.parse(socket.sent[0]!)).toEqual({
+    expect(JSON.parse(socket.sent[0])).toEqual({
       id: 1,
       method: "sessionEvents",
       params: { sessionId: "session-1", afterSequence: 7, limit: 50 }
@@ -193,7 +193,7 @@ describe("WebSocketRuntimeClient", () => {
     const replacement = MemoryWebSocket.instance
     replacement.open()
     await waitFor(() => expect(replacement.sent).toHaveLength(1))
-    expect(JSON.parse(replacement.sent[0]!)).toEqual({ id: 1, method: "runStates" })
+    expect(JSON.parse(replacement.sent[0])).toEqual({ id: 1, method: "runStates" })
     replacement.receive({ id: 1, result: [], error: null })
     await waitFor(() => expect(runStates).toHaveBeenCalledWith([]))
     expect(reconnected).toHaveBeenCalledTimes(1)

@@ -13,10 +13,11 @@
   },
   "devDependencies": {
     "@agentclientprotocol/sdk": "2.0.0",
+    "@nyssance/ts7-lint": "^0.1.2",
     "@tauri-apps/api": "^2",
     "@types/bun": "^1.4.3",
     "@types/node": "^24",
-    "typescript": "^5",
+    "typescript": "^7.0.2",
     "typescript-compiler": "npm:typescript@5.9.3"
   }
 }

@@ -521,7 +521,7 @@ export abstract class FrameRuntimeClient<Launch = unknown> implements RuntimeCli
     } catch {
       // The transport is gone; the reconnect path refills again. Hand out what we parked meanwhile.
     }
-    const parked = cursor.parked.sort((a, b) => a.sequence - b.sequence)
+    const parked = cursor.parked.toSorted((a, b) => a.sequence - b.sequence)
     cursor.parked = []
     const stillMissing: Parked[] = []
     for (const item of parked) {

@@ -30,39 +30,47 @@ class FakeRuntime implements Partial<RuntimeClient<{ engine: string }>> {
   hang = new Set<string>()
   private readonly hung: Array<{ resolve: (v: unknown) => void }> = []
 
-  async start(agentId: string): Promise<void> {
+  start(agentId: string): Promise<void> {
     this.calls.push(`start ${agentId}`)
-    if (this.running.has(agentId)) throw new Error(`agent ${agentId} is still running`)
+    if (this.running.has(agentId)) return Promise.reject(new Error(`agent ${agentId} is still running`))
     this.running.add(agentId)
+
+    return Promise.resolve()
   }
-  async stop(agentId: string): Promise<void> {
+  stop(agentId: string): Promise<void> {
     this.calls.push(`stop ${agentId}`)
     this.running.delete(agentId)
     // The Runtime's exit event only arrives after cleanup
     queueMicrotask(() => this.exit(agentId))
+
+    return Promise.resolve()
   }
   exit(agentId: string): void {
     this.running.delete(agentId)
     for (const handler of this.exitHandlers) handler({ agentId })
   }
-  async agents(): Promise<RuntimeAgentInfo[]> {
-    return [...this.running].map((agentId) => ({
-      agentId,
-      pid: 1,
-      provider: "",
-      model: "",
-      connection: "",
-      cpu: 0,
-      memMb: 0,
-      uptimeSecs: 0
-    }))
+  agents(): Promise<RuntimeAgentInfo[]> {
+    return Promise.resolve(
+      [...this.running].map((agentId) => ({
+        agentId,
+        pid: 1,
+        provider: "",
+        model: "",
+        connection: "",
+        cpu: 0,
+        memMb: 0,
+        uptimeSecs: 0
+      }))
+    )
   }
-  async attachSession(sessionId: string): Promise<RuntimeAttachInfo | null> {
+  attachSession(sessionId: string): Promise<RuntimeAttachInfo | null> {
     this.calls.push(`attach ${sessionId}`)
-    return this.attachable.get(sessionId) ?? null
+    return Promise.resolve(this.attachable.get(sessionId) ?? null)
   }
-  async releaseSession(sessionId: string): Promise<void> {
+  releaseSession(sessionId: string): Promise<void> {
     this.calls.push(`release ${sessionId}`)
+
+    return Promise.resolve()
   }
   acpRequest<T>(agentId: string, method: string, params?: unknown): Promise<T> {
     if (method === "initialize") {
@@ -74,23 +82,27 @@ class FakeRuntime implements Partial<RuntimeClient<{ engine: string }>> {
       return new Promise<T>((resolve) => this.hung.push({ resolve: resolve as (v: unknown) => void }))
     return Promise.resolve(this.answer(method, params) as T)
   }
-  async acpNotify(agentId: string, method: string, params?: unknown): Promise<void> {
+  acpNotify(agentId: string, method: string, params?: unknown): Promise<void> {
     this.notified.push({ agentId, method, params })
+
+    return Promise.resolve()
   }
-  async acpRespond(agentId: string, id: unknown, result?: unknown, error?: unknown): Promise<void> {
+  acpRespond(agentId: string, id: unknown, result?: unknown, error?: unknown): Promise<void> {
     this.responded.push({ agentId, id, result, error })
+
+    return Promise.resolve()
   }
-  async onAcpNotification(handler: (n: RuntimeAcpNotification) => void): Promise<() => void> {
+  onAcpNotification(handler: (n: RuntimeAcpNotification) => void): Promise<() => void> {
     this.notificationHandlers.add(handler)
-    return () => this.notificationHandlers.delete(handler)
+    return Promise.resolve(() => this.notificationHandlers.delete(handler))
   }
-  async onAcpAgentRequest(handler: (r: RuntimeAcpAgentRequest) => void): Promise<() => void> {
+  onAcpAgentRequest(handler: (r: RuntimeAcpAgentRequest) => void): Promise<() => void> {
     this.requestHandlers.add(handler)
-    return () => this.requestHandlers.delete(handler)
+    return Promise.resolve(() => this.requestHandlers.delete(handler))
   }
-  async onExit(handler: (e: RuntimeExitPayload) => void): Promise<() => void> {
+  onExit(handler: (e: RuntimeExitPayload) => void): Promise<() => void> {
     this.exitHandlers.add(handler)
-    return () => this.exitHandlers.delete(handler)
+    return Promise.resolve(() => this.exitHandlers.delete(handler))
   }
   emitNotification(agentId: string, method: string, params: unknown): void {
     for (const handler of this.notificationHandlers) handler({ agentId, method, params })
@@ -241,7 +253,7 @@ describe("requests", () => {
     controller.abort()
     await expect(login).rejects.toBeInstanceOf(RequestCancelledError)
     expect(runtime.notified).toEqual([
-      { agentId: "a1", method: "$/cancel_request", params: { requestId: expect.stringMatching(/^app-/) } }
+      { agentId: "a1", method: "$/cancel_request", params: { requestId: expect.stringMatching(/^app-/) as unknown } }
     ])
     runtime.answerHung({ ok: true })
     await flush()
@@ -320,9 +332,9 @@ describe("abandoned requests", () => {
     const { runtime, agents } = make()
     const agent = await agents.start("a1", { engine: "alwith" })
     const seen: unknown[] = []
-    runtime.acpRequest = (async (_agentId: string, _method: string, _params?: unknown, options?: { id?: unknown }) => {
+    runtime.acpRequest = ((_agentId: string, _method: string, _params?: unknown, options?: { id?: unknown }) => {
       seen.push(options?.id)
-      return {}
+      return Promise.resolve({})
     }) as typeof runtime.acpRequest
     await agent.request("session/list", {})
     await agent.request("session/list", {})

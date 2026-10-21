@@ -21,7 +21,7 @@ function harness(handle: ModuleRequestHandler) {
     input,
     output,
     frames,
-    send: (value: unknown) => input.write(JSON.stringify(value) + "\n"),
+    send: (value: unknown) => input.write(`${JSON.stringify(value)}\n`),
     next: (): Promise<Record<string, unknown>> =>
       frames.length ? Promise.resolve(frames.shift()!) : new Promise((resolve) => readers.push(resolve))
   }

@@ -259,7 +259,7 @@ function bumpClock(session: Session): Session {
 }
 
 function replaceItem(items: Item[], index: number, item: Item): Item[] {
-  const next = items.slice()
+  const next = [...items]
   next[index] = item
   return next
 }
@@ -299,7 +299,7 @@ function appendBlock(content: acp.ContentBlock[], block: acp.ContentBlock, strea
 /** Which message a chunk without messageId belongs to: the immediately preceding message of the same kind (not the locally pre-displayed one), otherwise a new one. */
 function anonymousMessageId(session: Session, kind: MessageItem["kind"]): string {
   const last = session.items.at(-1)
-  return last !== undefined && last.kind === kind && last.echo === null ? last.id : crypto.randomUUID()
+  return last?.kind === kind && last.echo === null ? last.id : crypto.randomUUID()
 }
 
 const MESSAGE_KINDS: Record<string, MessageItem["kind"]> = {
@@ -419,7 +419,7 @@ export function addPrompt(session: Session, content: acp.ContentBlock[], id: str
 /** Match a local optimistic message using its own prompt response, never arrival order. */
 export function acknowledgePrompt(session: Session, localId: string, messageId: string): Session {
   const local = session.items.find((item) => item.kind === "user" && item.id === localId)
-  if (local === undefined || local.kind !== "user" || local.echo !== "pending") {
+  if (local?.kind !== "user" || local.echo !== "pending") {
     throw new Error(`Unknown pending prompt ${localId}`)
   }
   const remote = session.items.find((item) => item.kind === "user" && item.id === messageId && item !== local)
@@ -508,7 +508,7 @@ export function markTerminated(session: Session, termination: InstanceTerminatio
   const reaped = mapTools(session, (tool) =>
     isRunning(tool) && before(tool) ? { ...tool, status: INTERRUPTED, endedAt: now } : tool
   )
-  const lastUser = [...reaped.items].reverse().find((item) => item.kind === "user")
+  const lastUser = [...reaped.items].toReversed().find((item) => item.kind === "user")
   const openTurn = lastUser !== undefined && !(lastUser.id in reaped.turnEndedAt) && before(lastUser)
   const changed = reaped !== session || openTurn
   if (!changed) return session
@@ -543,7 +543,7 @@ function fold(session: Session, update: acp.SessionUpdate, options: ApplyOptions
       const acknowledged = session.items.find(
         (item) => item.kind === "user" && item.id === messageId && item.echo === "acknowledged"
       )
-      if (acknowledged !== undefined && acknowledged.kind === "user") {
+      if (acknowledged?.kind === "user") {
         return {
           ...session,
           items: [
@@ -575,7 +575,7 @@ function fold(session: Session, update: acp.SessionUpdate, options: ApplyOptions
                   ? item.content
                   : frame.content === null
                     ? []
-                    : frame.content.slice(),
+                    : [...frame.content],
               _meta: isChunk ? patchChunkMeta(item._meta, frame._meta) : patchMeta(item._meta, frame._meta)
             }
     )
@@ -665,7 +665,7 @@ function fold(session: Session, update: acp.SessionUpdate, options: ApplyOptions
           // Only its own declaration counts: steps dispatched by a background subagent are sealed and reaped along with it, and their own status frames are accepted as usual.
           if (
             options.policy?.outlivesTurn?.(patched) === true &&
-            options.policy.outlivesTurn({ ...patched, _meta: meta(frame._meta) }) !== true
+            !options.policy.outlivesTurn({ ...patched, _meta: meta(frame._meta) })
           )
             return patched
           const endedAt = isTerminal(frame.status) ? (patched.endedAt ?? nextStamp(session)) : null
@@ -715,7 +715,7 @@ function fold(session: Session, update: acp.SessionUpdate, options: ApplyOptions
             ...current,
             command: frame.command === undefined ? current.command : frame.command,
             cwd: frame.cwd === undefined ? current.cwd : frame.cwd,
-            output: decodedTerminalText === undefined ? current.output : decodedTerminalText,
+            output: decodedTerminalText ?? current.output,
             exitStatus: frame.exitStatus === undefined ? current.exitStatus : frame.exitStatus,
             _meta: patchMeta(current._meta, frame._meta)
           }
@@ -777,7 +777,7 @@ function fold(session: Session, update: acp.SessionUpdate, options: ApplyOptions
         (item) => ({
           ...item,
           status: frame.status,
-          summary: frame.summary === undefined ? item.summary : frame.summary === null ? [] : frame.summary.slice(),
+          summary: frame.summary === undefined ? item.summary : frame.summary === null ? [] : [...frame.summary],
           error: frame.error === undefined ? item.error : frame.error,
           _meta: patchMeta(item._meta, frame._meta)
         })
@@ -802,7 +802,7 @@ function fold(session: Session, update: acp.SessionUpdate, options: ApplyOptions
       return {
         ...session,
         configOptions: (update as acp.ConfigOptionUpdate).configOptions,
-        configRevision: revision === null ? session.configRevision : revision
+        configRevision: revision ?? session.configRevision
       }
     }
     case "session_info_update": {

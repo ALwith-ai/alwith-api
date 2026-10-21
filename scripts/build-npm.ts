@@ -48,23 +48,25 @@ if (diagnostics.length)
   )
 
 // Preserve per-file modules (React context identity), and make ESM/Worker paths real.
-const rewrite = (context: import("typescript").TransformationContext) => {
+const rewrite = (context: import("typescript-compiler").TransformationContext) => {
   let sourceFile: string
-  const visit = (node: import("typescript").Node): import("typescript").VisitResult<import("typescript").Node> => {
+  const visit = (
+    node: import("typescript-compiler").Node
+  ): import("typescript-compiler").VisitResult<import("typescript-compiler").Node> => {
     if (ts.isStringLiteral(node) && node.text.startsWith(".")) {
       const path = resolve(dirname(sourceFile), node.text)
       let value = node.text
       if (/\.tsx?$/.test(value)) value = value.replace(/\.tsx?$/, ".js")
-      else if (existsSync(path + ".ts") || existsSync(path + ".tsx")) value += ".js"
+      else if (existsSync(`${path}.ts`) || existsSync(`${path}.tsx`)) value += ".js"
       else if (existsSync(resolve(path, "index.ts")) || existsSync(resolve(path, "index.tsx"))) value += "/index.js"
       if (value !== node.text) return context.factory.createStringLiteral(value)
     }
     return ts.visitEachChild(node, visit, context)
   }
-  return (file: import("typescript").SourceFile | import("typescript").Bundle) => {
+  return (file: import("typescript-compiler").SourceFile | import("typescript-compiler").Bundle) => {
     if (ts.isBundle(file)) throw new Error("Bundle emit is not used; files are emitted one by one")
     sourceFile = file.fileName
-    return ts.visitNode(file, visit) as import("typescript").SourceFile
+    return ts.visitNode<import("typescript-compiler").SourceFile>(file, visit)
   }
 }
 rmSync(dist, { recursive: true, force: true })
