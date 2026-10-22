@@ -197,11 +197,28 @@ export class Agent {
 
   /**
    * Sends an ACP request and waits for the agent's reply (the Runtime pairs the response by id).
+   * Method contracts come directly from the SDK's ClientContext mappings, including custom-method escape rules.
+   * Unlike the SDK's cooperative cancellationSignal, signal also ends this holder's local wait immediately.
    * `signal` abort = the user's own cancellation of this request: sends `$/cancel_request` per the spec (the agent MAY cancel and MUST answer the
    * original request with -32800 or a valid response), and fails locally at once with `RequestCancelledError` without waiting for the agent to cooperate.
    * Every request picks its own id and passes it to the Runtime: the id is what a cancellation refers to, and what the Runtime books the request under
    * for this holder.
    */
+  request<Method extends acp.AgentRequestMethod>(
+    method: Method,
+    params: acp.AgentRequestParamsByMethod[Method],
+    options?: { signal?: AbortSignal }
+  ): Promise<acp.AgentRequestResponsesByMethod[Method]>
+  request<Response = unknown, Params = unknown>(
+    method: acp.ExtensionMethod,
+    params?: Params,
+    options?: { signal?: AbortSignal }
+  ): Promise<Response>
+  request<Response = unknown, Params = unknown, const Method extends string = never>(
+    method: acp.UnrecognizedMethod<Method>,
+    params?: Params,
+    options?: { signal?: AbortSignal }
+  ): Promise<Response>
   request<T = unknown>(method: string, params?: unknown, options?: { signal?: AbortSignal }): Promise<T> {
     const signal = options?.signal
     if (signal?.aborted) return Promise.reject(new RequestCancelledError())
@@ -238,6 +255,16 @@ export class Agent {
     })
   }
 
+  notify<Method extends acp.AgentNotificationMethod>(
+    method: Method,
+    params: acp.AgentNotificationParamsByMethod[Method]
+  ): Promise<void>
+  notify(method: "$/cancel_request", params: acp.CancelRequestNotification): Promise<void>
+  notify<Params = unknown>(method: acp.ExtensionMethod, params?: Params): Promise<void>
+  notify<Params = unknown, const Method extends string = never>(
+    method: acp.UnrecognizedMethod<Method>,
+    params?: Params
+  ): Promise<void>
   notify(method: string, params?: unknown): Promise<void> {
     return this.port.acpNotify(this.agentId, method, params)
   }

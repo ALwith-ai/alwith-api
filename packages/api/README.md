@@ -45,6 +45,14 @@ A panel that only observes and does not claim should not attach: `attach` means 
 
 `Agents` only requires the port to have the `AgentPort` methods (a subset of `RuntimeClient`), so an application's own host port (such as a Tauri relay) works too.
 
+Standard `Agent.request` and `Agent.notify` calls use the official ACP SDK method maps:
+parameters and results are inferred from the method literal. Do not provide a response
+schema generic for standard methods. Custom `_` methods can supply their own response
+and parameter types, as in the SDK. The Runtime still owns transport routing; this does
+not create a second SDK connection. The `signal` option cancels the request and ends the
+local wait immediately, unlike the SDK's cooperative `cancellationSignal`.
+
+
 The protocol reference is [PROTOCOL.md](../../PROTOCOL.md) at the repo root; this package is its application side.
 
 ## Rust SDK
