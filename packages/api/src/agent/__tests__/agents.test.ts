@@ -8,7 +8,7 @@ import type {
   RuntimeClient,
   RuntimeExitPayload
 } from "../../runtime"
-import { AgentGoneError, Agents, ProtocolVersionError, RequestCancelledError } from "../agents"
+import { AgentGoneError, Agents, ProtocolVersionError } from "../agents"
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
@@ -244,18 +244,58 @@ describe("requests", () => {
     expect(agents.get("a1")).toBeUndefined()
   })
 
-  test("a request with a signal: abort sends $/cancel_request and fails locally at once; a late reply is dropped", async () => {
+  test("cancellationSignal preserves the peer response and pending request", async () => {
     const { runtime, agents } = make()
     const agent = await agents.start("a1", { engine: "alwith" })
     runtime.hang.add("_alwith/login")
     const controller = new AbortController()
-    const login = agent.request("_alwith/login", {}, { signal: controller.signal })
+    const login = agent.request("_alwith/login", {}, { cancellationSignal: controller.signal })
     controller.abort()
-    await expect(login).rejects.toBeInstanceOf(RequestCancelledError)
+    await flush()
+    expect(agent.inflightCount).toBe(1)
     expect(runtime.notified).toEqual([
       { agentId: "a1", method: "$/cancel_request", params: { requestId: expect.stringMatching(/^app-/) as unknown } }
     ])
     runtime.answerHung({ ok: true })
+    await expect(login).resolves.toEqual({ ok: true })
+    expect(agent.inflightCount).toBe(0)
+  })
+
+  test("a pre-aborted signal sends the request and one cancellation, then preserves its reply", async () => {
+    const { runtime, agents } = make()
+    const agent = await agents.start("a1", { engine: "alwith" })
+    runtime.hang.add("_test/cancel")
+    const controller = new AbortController()
+    controller.abort()
+    const response = agent.request("_test/cancel", {}, { cancellationSignal: controller.signal })
+    expect(runtime.calls).toContain("request a1 _test/cancel")
+    expect(runtime.notified).toHaveLength(1)
+    expect(agent.inflightCount).toBe(1)
+    runtime.answerHung({ completed: true })
+    await expect(response).resolves.toEqual({ completed: true })
+  })
+
+  test("abort after response does not send a cancellation", async () => {
+    const { runtime, agents } = make()
+    const agent = await agents.start("a1", { engine: "alwith" })
+    const controller = new AbortController()
+    await agent.request("_test/echo", {}, { cancellationSignal: controller.signal })
+    controller.abort()
+    expect(runtime.notified).toEqual([])
+    expect(agent.inflightCount).toBe(0)
+  })
+
+  test("transport loss settles a cooperatively cancelled request", async () => {
+    const { runtime, agents } = make()
+    const agent = await agents.start("a1", { engine: "alwith" })
+    runtime.hang.add("_test/cancel")
+    const controller = new AbortController()
+    const response = agent.request("_test/cancel", {}, { cancellationSignal: controller.signal })
+    controller.abort()
+    runtime.exit("a1")
+    await expect(response).rejects.toBeInstanceOf(AgentGoneError)
+    expect(agent.inflightCount).toBe(0)
+    runtime.answerHung({ late: true })
     await flush()
   })
 

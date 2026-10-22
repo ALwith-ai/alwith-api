@@ -49,8 +49,9 @@ Standard `Agent.request` and `Agent.notify` calls use the official ACP SDK metho
 parameters and results are inferred from the method literal. Do not provide a response
 schema generic for standard methods. Custom `_` methods can supply their own response
 and parameter types, as in the SDK. The Runtime still owns transport routing; this does
-not create a second SDK connection. The `signal` option cancels the request and ends the
-local wait immediately, unlike the SDK's cooperative `cancellationSignal`.
+not create a second SDK connection. The SDK's `cancellationSignal` requests cooperative cancellation: the original
+request remains pending until the agent replies or the transport fails. Even a
+pre-aborted signal sends the request before `$/cancel_request`, matching the SDK.
 
 
 The protocol reference is [PROTOCOL.md](../../PROTOCOL.md) at the repo root; this package is its application side.

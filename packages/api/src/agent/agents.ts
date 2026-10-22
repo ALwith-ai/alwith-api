@@ -8,7 +8,7 @@
 // - stop must wait for the exit event, otherwise the engine-switch resume would reattach to the old process.
 import type * as acp from "@agentclientprotocol/sdk/experimental/v2/unstable"
 
-import { type AgentRequest, REQUEST_CANCELLED } from "./requests"
+import { type AgentRequest } from "./requests"
 
 /** The only protocol version this library speaks. */
 export const PROTOCOL_VERSION = 2
@@ -60,15 +60,6 @@ export class AgentGoneError extends Error {
     super(`${reason}: agent ${agentId}`)
     this.name = "AgentGoneError"
     this.agentId = agentId
-  }
-}
-
-/** A request carrying a signal was cancelled by the caller: `$/cancel_request` has been sent per the protocol, and it fails locally at once. */
-export class RequestCancelledError extends Error {
-  readonly code = REQUEST_CANCELLED
-  constructor() {
-    super("Request cancelled")
-    this.name = "RequestCancelledError"
   }
 }
 
@@ -196,36 +187,19 @@ export class Agent {
   }
 
   /**
-   * Sends an ACP request and waits for the agent's reply (the Runtime pairs the response by id).
-   * Method contracts come directly from the SDK's ClientContext mappings, including custom-method escape rules.
-   * Unlike the SDK's cooperative cancellationSignal, signal also ends this holder's local wait immediately.
-   * `signal` abort = the user's own cancellation of this request: sends `$/cancel_request` per the spec (the agent MAY cancel and MUST answer the
-   * original request with -32800 or a valid response), and fails locally at once with `RequestCancelledError` without waiting for the agent to cooperate.
-   * Every request picks its own id and passes it to the Runtime: the id is what a cancellation refers to, and what the Runtime books the request under
-   * for this holder.
+   * The SDK's request contract over the Runtime's paired transport.
+   * Cancellation is cooperative: keep the request pending until its real reply or transport loss.
+   * An already-aborted signal still sends the request before its cancellation notification.
    */
-  request<Method extends acp.AgentRequestMethod>(
-    method: Method,
-    params: acp.AgentRequestParamsByMethod[Method],
-    options?: { signal?: AbortSignal }
-  ): Promise<acp.AgentRequestResponsesByMethod[Method]>
-  request<Response = unknown, Params = unknown>(
-    method: acp.ExtensionMethod,
-    params?: Params,
-    options?: { signal?: AbortSignal }
-  ): Promise<Response>
-  request<Response = unknown, Params = unknown, const Method extends string = never>(
-    method: acp.UnrecognizedMethod<Method>,
-    params?: Params,
-    options?: { signal?: AbortSignal }
-  ): Promise<Response>
-  request<T = unknown>(method: string, params?: unknown, options?: { signal?: AbortSignal }): Promise<T> {
-    const signal = options?.signal
-    if (signal?.aborted) return Promise.reject(new RequestCancelledError())
+  request: acp.ClientContext["request"] = <T = unknown>(
+    method: string, params?: unknown, options?: acp.SendRequestOptions
+  ): Promise<T> => {
+    const signal = options?.cancellationSignal
     if (!this._alive) return Promise.reject(new AgentGoneError(this.agentId, "agent is gone"))
     const id = `${this.idPrefix}-${this.nextId++}`
     return new Promise<T>((resolve, reject) => {
       let settled = false
+      let cancellationSent = false
       const settle = () => {
         settled = true
         this.inflight.delete(id)
@@ -237,10 +211,12 @@ export class Agent {
         reject(error)
       }
       const onAbort = () => {
-        if (settled) return
-        settle()
-        void this.notify("$/cancel_request", { requestId: id })
-        reject(new RequestCancelledError())
+        if (settled || cancellationSent) return
+        cancellationSent = true
+        signal?.removeEventListener("abort", onAbort)
+        void this.notify("$/cancel_request", { requestId: id }).catch((error: unknown) => {
+          fail(error instanceof Error ? error : new Error(String(error)))
+        })
       }
       signal?.addEventListener("abort", onAbort, { once: true })
       this.inflight.set(id, { method, fail })
@@ -252,20 +228,11 @@ export class Agent {
         },
         (error: unknown) => fail(error instanceof Error ? error : new Error(String(error)))
       )
+      if (signal?.aborted) onAbort()
     })
   }
 
-  notify<Method extends acp.AgentNotificationMethod>(
-    method: Method,
-    params: acp.AgentNotificationParamsByMethod[Method]
-  ): Promise<void>
-  notify(method: "$/cancel_request", params: acp.CancelRequestNotification): Promise<void>
-  notify<Params = unknown>(method: acp.ExtensionMethod, params?: Params): Promise<void>
-  notify<Params = unknown, const Method extends string = never>(
-    method: acp.UnrecognizedMethod<Method>,
-    params?: Params
-  ): Promise<void>
-  notify(method: string, params?: unknown): Promise<void> {
+  notify: acp.ClientContext["notify"] = (method: string, params?: unknown): Promise<void> => {
     return this.port.acpNotify(this.agentId, method, params)
   }
 

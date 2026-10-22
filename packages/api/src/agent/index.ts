@@ -4,8 +4,7 @@ export {
   Agents,
   initialize,
   PROTOCOL_VERSION,
-  ProtocolVersionError,
-  RequestCancelledError
+  ProtocolVersionError
 } from "./agents"
 export type { AgentPort, Attached, AttachInfo, Handshake } from "./agents"
 export { assertPromptSupported, ConfigOptionError, configOptionRequest, UnsupportedPromptContentError } from "./guards"

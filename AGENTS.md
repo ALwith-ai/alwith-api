@@ -22,3 +22,13 @@ compile errors CI could have been spared.
 - Write commit messages in English only. No Chinese in subjects or bodies, in any repo.
 - Squash churn before pushing: one commit per logical change. Never leave an add-then-remove sequence (a feature commit followed by its revert, or a dependency pinned and re-pinned) in history; rewrite it into the net result.
 - Origin: user instruction (2026-10-20).
+
+## Publish existing npm packages through trusted CI
+
+- `@alwith/api` already has a working npm Trusted Publisher bound to
+  `ALwith-ai/alwith-api`, workflow `publish.yml`, without an environment.
+- Release by committing the patch version and pushing the matching `v<version>` tag.
+  Monitor the workflow and verify the registry version before updating consumers.
+- Do not run local `npm publish` or ask for per-release npm login / 2FA.
+  Change the one-time trust binding only if CI reports an actual trust mismatch.
+- Origin: user instruction (2026-10-22).

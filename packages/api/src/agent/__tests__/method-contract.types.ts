@@ -15,6 +15,12 @@ export function checkAgentMethodContracts(agent: Agent): void {
   })
   const custom: Promise<{ ok: boolean }> = agent.request<{ ok: boolean }>("_custom/status", {})
   const future: Promise<unknown> = agent.request("future/request", {})
+  const official: Pick<acp.ClientContext, "request" | "notify"> = agent
+  void official.request("session/prompt", { sessionId: "s", prompt: [] }, {
+    cancellationSignal: new AbortController().signal
+  })
+  // @ts-expect-error The private immediate-cancellation option is no longer supported.
+  void agent.request("session/prompt", { sessionId: "s", prompt: [] }, { signal: new AbortController().signal })
   void [prompt, resumed, custom, future]
   void agent.notify("session/cancel", { sessionId: "session" })
   void agent.notify("$/cancel_request", { requestId: 1 })
