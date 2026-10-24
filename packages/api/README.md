@@ -106,3 +106,19 @@ mutations. Tune this ceiling to the application's measured workload. Closing an
 operation is not evidence of remote cancellation, and a missing receipt is not
 evidence that a prompt was refused. Callers must fence late receipts against the
 original binding and local insertion before changing session state.
+
+
+`SessionGenerations` provides opaque local attachment identities. Capture at dispatch,
+check before applying asynchronous results, and retire on close, stop or replay.
+Clear on Agent replacement or disconnect. This works even when a session ID and
+its retained transcript survive a stop; it is not a wire-level fencing token.
+
+`PromptTracker` distinguishes acceptance from insertion and completion. A receipt
+identifies the submission; only its matching user-message echo followed by an idle
+boundary proves completion. Echo and completion may precede the receipt. An idle
+for a preceding turn cannot finish an accepted but not yet echoed submission.
+Call `failSession` when retiring one session, or `fail` when retiring its connection.
+Trackers default to 256 pending submissions and 4096 observed message IDs per
+session. Pending overflow refuses dispatch; evidence overflow fails the affected
+session's completion tracking with an explicit unknown outcome. Neither claims
+remote cancellation or retries a potentially accepted submission.

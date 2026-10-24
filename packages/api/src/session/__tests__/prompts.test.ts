@@ -31,6 +31,7 @@ test("a receipt does not finish a turn", async () => {
   sent.resolve(receipt("m"))
   await acknowledged.promise
   expect(finished).toBe(false)
+  echo(tracker, "m")
   tracker.accept("s", idle)
   expect(await turn).toEqual(idle)
 })
@@ -126,6 +127,7 @@ test("notice and another session's idle cannot complete a prompt", async () => {
   tracker.accept("other", idle)
   await Promise.resolve()
   expect(completed).toBe(false)
+  echo(tracker, "m")
   tracker.accept("s", idle)
   await turn
 })
@@ -181,4 +183,101 @@ test("pre-insertion errors reject without waiting for idle", async () => {
       () => {}
     )
   ).rejects.toThrow("rejected")
+})
+
+test("a queued accepted message cannot finish at the preceding turn's idle", async () => {
+  const tracker = new PromptTracker()
+  const acknowledged = Promise.withResolvers<void>()
+  let finished = false
+  const turn = tracker
+    .run(
+      "s",
+      async () => receipt("queued"),
+      () => acknowledged.resolve()
+    )
+    .then((value) => {
+      finished = true
+      return value
+    })
+  await acknowledged.promise
+  echo(tracker, "previous")
+  tracker.accept("s", idle)
+  await Promise.resolve()
+  expect(finished).toBe(false)
+  echo(tracker, "queued")
+  const cancelled = { ...idle, stopReason: "cancelled" } as const
+  tracker.accept("s", cancelled)
+  expect(await turn).toEqual(cancelled)
+})
+
+test("retiring one session leaves its sibling and replacement usable", async () => {
+  const tracker = new PromptTracker()
+  const response = request()
+  let staleAcknowledged = false
+  const old = tracker.run(
+    "s",
+    () => response.promise,
+    () => {
+      staleAcknowledged = true
+    }
+  )
+  const failed = old.catch((error) => error)
+  const other = tracker.run(
+    "other",
+    async () => receipt("other-message"),
+    () => {}
+  )
+  await Promise.resolve()
+  tracker.failSession("s", new Error("closed"))
+  expect(await failed).toBeInstanceOf(Error)
+  const replacement = tracker.run(
+    "s",
+    async () => receipt("new"),
+    () => {}
+  )
+  response.resolve(receipt("old"))
+  echo(tracker, "new")
+  tracker.accept("s", idle)
+  tracker.accept("other", {
+    sessionUpdate: "user_message",
+    messageId: "other-message",
+    content: []
+  } as unknown as SessionUpdate)
+  tracker.accept("other", idle)
+  await Promise.all([replacement, other])
+  expect(staleAcknowledged).toBe(false)
+})
+
+test("capacity rejects before dispatch and evidence overflow retires only that session", async () => {
+  const tracker = new PromptTracker({ maxPendingPerSession: 1, maxObservedMessagesPerSession: 1 })
+  const sent = request()
+  const pending = tracker.run(
+    "s",
+    () => sent.promise,
+    () => {}
+  )
+  const failed = pending.catch((error) => error)
+  let dispatched = false
+  const overflow = tracker.run(
+    "s",
+    async () => {
+      dispatched = true
+      return receipt("extra")
+    },
+    () => {}
+  )
+  await expect(overflow).rejects.toThrow("pending prompt capacity exceeded")
+  expect(dispatched).toBe(false)
+  echo(tracker, "one")
+  echo(tracker, "two")
+  expect(await failed).toMatchObject({ message: expect.stringContaining("completion is unknown") })
+  sent.resolve(receipt("one"))
+  const replacement = tracker.run(
+    "s",
+    async () => receipt("replacement"),
+    () => {}
+  )
+  echo(tracker, "replacement")
+  tracker.accept("s", idle)
+  await replacement
 })
