@@ -15,30 +15,36 @@ const binary = candidates.find(existsSync)
 
 describe.skipIf(!binary)("ProcessRuntimeClient", () => {
   test("spawns alwith-runtime over stdio, answers requests, forwards agent events", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "runtime-client-"))
     const port = new ProcessRuntimeClient({
       binary: binary!,
       engines: { cat: { command: "/bin/cat" } },
-      journalRoot: mkdtempSync(join(tmpdir(), "runtime-client-")),
+      journalRoot: join(directory, "journal"),
+      env: { ALWITH_RUNTIME_ATTENTION: join(directory, "attention") },
       stderr: "ignore"
     })
-    const seen: string[] = []
-    await port.onInbound((payload) => seen.push(...payload.lines))
-    await port.ping()
-    expect(await port.runStates()).toEqual([])
-    await port.start("cat", { engine: "cat" })
-    const prompt = JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "session/prompt",
-      params: { sessionId: "s1", prompt: [] }
-    })
-    await port.send("cat", prompt)
-    const deadline = Date.now() + 5000
-    while (seen.length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20))
-    expect(seen[0]).toContain("session/prompt")
     const exited = new Promise((resolve) => port.onProcessExit(resolve))
-    port.close()
-    await exited
+    try {
+      const seen: string[] = []
+      await port.onInbound((payload) => seen.push(...payload.lines))
+      await port.ping()
+      expect(await port.runStates()).toEqual([])
+      await port.start("cat", { engine: "cat" })
+      const prompt = JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "session/prompt",
+        params: { sessionId: "s1", prompt: [] }
+      })
+      await port.send("cat", prompt)
+      const deadline = Date.now() + 5000
+      while (seen.length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20))
+      expect(seen[0]).toContain("session/prompt")
+    } finally {
+      port.close()
+      await exited
+      rmSync(directory, { recursive: true, force: true })
+    }
     await expect(port.ping()).rejects.toThrow("exited")
   })
 })

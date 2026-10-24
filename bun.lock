@@ -16,7 +16,7 @@
     },
     "packages/api": {
       "name": "@alwith/api",
-      "version": "0.4.18",
+      "version": "0.4.19",
       "dependencies": {
         "effect": "4.0.1",
       },

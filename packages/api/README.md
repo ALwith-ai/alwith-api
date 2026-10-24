@@ -122,3 +122,31 @@ Trackers default to 256 pending submissions and 4096 observed message IDs per
 session. Pending overflow refuses dispatch; evidence overflow fails the affected
 session's completion tracking with an explicit unknown outcome. Neither claims
 remote cancellation or retries a potentially accepted submission.
+
+
+## Coordinated session lifetime
+
+Applications use one `SessionLifecycle` per connection owner. It composes the
+Effect-backed operation/admission queues with attachment generations, cancellable
+prompt preparation, bounded creation buffering, replay admission, and a submission
+ledger. `beginReplay` retires previous submission evidence without cancelling the
+preparation that intentionally requested that replay. Close/cancel intent calls
+`cancelPreparing` before entering a destructive-operation lane; successful closure
+calls `retire`. Disconnect calls `clear`. Work already sent remains owned until the
+peer settles; these methods never claim remote cancellation.
+
+`SubmissionLedger.submit` returns separate receipt and completion promises. Its
+bounded snapshots contain only submission identity and evidence: pending, accepted,
+explicitly rejected or unknown; a matching live echo; and completion. A transport
+failure remains unknown unless a caller supplies evidence of definite refusal.
+Historical replay is excluded from live completion evidence. Completed/retired
+snapshots are retained in a bounded diagnostic ring, not persisted as conversations.
+`PromptTracker` is the compatibility export of this same implementation.
+
+`ReplayCoordinator` admits frames only after a locally requested replay has started;
+a late end marker cannot clear another replay and a closed attachment cannot be
+revived by a late start marker. `SessionBirths` orders pre-response creation frames,
+rejects overflow rather than returning partial success, and fences old creation
+responses on disconnect. The `Agents` registry remains the sole process-binding
+registry; its Effect scopes release connection subscriptions. Session retirement
+never stops a sibling session's shared Agent process.
