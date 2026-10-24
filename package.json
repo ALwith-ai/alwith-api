@@ -7,7 +7,6 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p packages/api",
     "test": "bun test packages",
-    "format": "bun fmt",
     "ts7-lint": "ts7-lint",
     "format:rust": "cargo fmt --all",
     "format:all": "bun run format:rust && bun fmt"
