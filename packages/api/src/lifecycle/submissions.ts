@@ -56,7 +56,7 @@ export class SubmissionLedger {
     const active = [...this.sessions.values()].flatMap((session) => [...session.pending].map((item) => item.snapshot))
     return [...this.recent.values(), ...active]
       .filter((item) => sessionId === undefined || item.sessionId === sessionId)
-      .sort((a, b) => a.id - b.id)
+      .toSorted((a, b) => a.id - b.id)
       .map((item) => Object.freeze({ ...item }))
   }
 

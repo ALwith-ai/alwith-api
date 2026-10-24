@@ -7,13 +7,12 @@ import { SessionLifecycle } from "../session-lifecycle"
 import { SubmissionLedger } from "../submissions"
 
 const idle = { sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" } as const
-const echo = (id: string, replay?: string): SessionUpdate =>
-  ({
-    sessionUpdate: "user_message",
-    messageId: id,
-    content: [],
-    ...(replay ? { _meta: { replay: { id: replay } } } : {})
-  }) as SessionUpdate
+const echo = (id: string, replay?: string): SessionUpdate => ({
+  sessionUpdate: "user_message",
+  messageId: id,
+  content: [],
+  ...(replay ? { _meta: { replay: { id: replay } } } : {})
+})
 
 test("acceptance, insertion and completion remain separate evidence", async () => {
   const core = new SessionLifecycle()

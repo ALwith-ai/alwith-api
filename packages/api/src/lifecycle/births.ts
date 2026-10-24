@@ -31,19 +31,23 @@ export class SessionBirths<Update> {
     this.size = 0
   }
 
+  private assertCapacity(): void {
+    if (this.overflow) throw this.overflow
+  }
+
   async run<Response extends { sessionId: string }>(
     request: () => Promise<Response>,
     settle: (response: Response) => void,
     accept: (sessionId: string, update: Update) => void
   ): Promise<Response> {
-    if (this.overflow) throw this.overflow
+    this.assertCapacity()
     if (this.creating >= 256) throw new Error("Session creation capacity exceeded")
     const epoch = this.epoch
     this.creating++
     try {
       const response = await request()
       if (epoch !== this.epoch) throw new Error("Session creation belongs to a retired connection")
-      if (this.overflow) throw this.overflow
+      this.assertCapacity()
       settle(response)
       const queued = this.frames.get(response.sessionId) ?? []
       this.frames.delete(response.sessionId)
