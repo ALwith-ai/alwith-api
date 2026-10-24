@@ -382,3 +382,70 @@ describe("abandoned requests", () => {
     expect(seen[0]).not.toBe(seen[1])
   })
 })
+
+describe("binding acquisition ownership", () => {
+  test("concurrent adoption handshakes and subscribes only once", async () => {
+    const runtime = new FakeRuntime()
+    const agents = new Agents(runtime, { info: { name: "test-app", version: "1" } })
+    const first = agents.adopt("shared", "alwith")
+    const second = agents.adopt("shared", "alwith")
+    expect(second).toBe(first)
+    const agent = await first
+    expect(runtime.calls.filter((call) => call.startsWith("initialize"))).toHaveLength(1)
+    expect(runtime.listeners).toBe(3)
+    agents.release(agent)
+    expect(runtime.listeners).toBe(0)
+  })
+
+  test("a failed subscription releases every previously acquired subscription", async () => {
+    const runtime = new FakeRuntime()
+    const error = new Error("request subscription failed")
+    runtime.onAcpAgentRequest = () => Promise.reject(error)
+    const agents = new Agents(runtime, { info: { name: "test-app", version: "1" } })
+    await expect(agents.adopt("shared", "alwith")).rejects.toBe(error)
+    expect(runtime.listeners).toBe(0)
+    expect(agents.get("shared")).toBeUndefined()
+  })
+
+  test("exit during subscription acquisition releases the late subscription", async () => {
+    const runtime = new FakeRuntime()
+    const subscribe = runtime.onAcpNotification.bind(runtime)
+    let complete!: () => void
+    let acquired!: () => void
+    const ready = new Promise<void>((resolve) => {
+      acquired = resolve
+    })
+    runtime.onAcpNotification = async (handler) => {
+      const unsubscribe = await subscribe(handler)
+      return new Promise<() => void>((resolve) => {
+        complete = () => resolve(unsubscribe)
+        acquired()
+      })
+    }
+    const agents = new Agents(runtime, { info: { name: "test-app", version: "1" } })
+    const adopting = agents.adopt("shared", "alwith")
+    const result = adopting.then(
+      () => "unexpected success",
+      () => "rejected"
+    )
+    await ready
+    runtime.exit("shared")
+    complete()
+    expect(await result).toBe("rejected")
+    expect(runtime.listeners).toBe(0)
+    expect(agents.get("shared")).toBeUndefined()
+  })
+})
+
+test("a rejected stop preserves the live binding and its subscriptions", async () => {
+  const runtime = new FakeRuntime()
+  const agents = new Agents(runtime, { info: { name: "test-app", version: "1" } })
+  const agent = await agents.start("a1", { engine: "alwith" })
+  const error = new Error("stop rejected")
+  runtime.stop = () => Promise.reject(error)
+  await expect(agent.stop()).rejects.toBe(error)
+  expect(agent.alive).toBe(true)
+  expect(agents.get("a1")).toBe(agent)
+  expect(runtime.listeners).toBe(3)
+  agents.release(agent)
+})

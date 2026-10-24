@@ -7,7 +7,9 @@
 // - when the process exits / is stopped / is let go, requests still awaiting an answer fail immediately, so the caller's await never hangs;
 // - stop must wait for the exit event, otherwise the engine-switch resume would reattach to the old process.
 import type * as acp from "@agentclientprotocol/sdk/experimental/v2/unstable"
+import { Effect, Exit, Scope } from "effect"
 
+import { attempt, failure, run } from "../lifecycle/internal"
 import { type AgentRequest } from "./requests"
 
 /** The only protocol version this library speaks. */
@@ -117,7 +119,8 @@ export class Agent {
   private readonly requestHandlers = new Set<(request: AgentRequest) => void>()
   private readonly idPrefix = `app-${Math.random().toString(36).slice(2, 8)}`
   private nextId = 1
-  private unlisten: (() => void) | null = null
+  private readonly subscriptionScope = Scope.makeUnsafe()
+  private listening: Promise<void> | null = null
   private readonly resolveExited: () => void
   private readonly goneListeners = new Set<() => void>()
   private readonly failureListeners = new Set<(error: Error) => void>()
@@ -165,25 +168,46 @@ export class Agent {
   }
 
   /** @internal Attaches the three Runtime subscriptions; only once. */
-  async listen(): Promise<void> {
-    if (this.unlisten) return
-    const offNotification = await this.port.onAcpNotification((notification) => {
-      if (notification.agentId !== this.agentId) return
-      for (const handler of this.notificationHandlers) handler(notification.method, notification.params)
-    })
-    const offRequest = await this.port.onAcpAgentRequest((request) => {
-      if (request.agentId !== this.agentId) return
-      for (const handler of this.requestHandlers)
-        handler({ id: request.id, method: request.method, params: request.params })
-    })
-    const offExit = await this.port.onExit((exit) => {
-      if (exit.agentId === this.agentId) this.gone("agent exited")
-    })
-    this.unlisten = () => {
-      offNotification()
-      offRequest()
-      offExit()
-    }
+  listen(): Promise<void> {
+    if (this.listening) return this.listening
+    const self = this
+    this.listening = run(
+      Effect.gen(function* () {
+        const own = (acquire: () => Promise<() => void>) =>
+          Effect.acquireRelease(attempt(acquire), (release) => Effect.sync(release))
+        // Subscribe to exit first so a process dying during later acquisition cannot be published alive.
+        yield* own(() =>
+          self.port.onExit((exit) => {
+            if (exit.agentId === self.agentId) self.gone("agent exited")
+          })
+        )
+        yield* own(() =>
+          self.port.onAcpNotification((notification) => {
+            if (!self._alive || notification.agentId !== self.agentId) return
+            for (const handler of self.notificationHandlers) handler(notification.method, notification.params)
+          })
+        )
+        yield* own(() =>
+          self.port.onAcpAgentRequest((request) => {
+            if (!self._alive || request.agentId !== self.agentId) return
+            for (const handler of self.requestHandlers)
+              handler({ id: request.id, method: request.method, params: request.params })
+          })
+        )
+        if (!self._alive)
+          return yield* Effect.fail(new AgentGoneError(self.agentId, "agent retired during subscription"))
+      }).pipe(
+        Effect.provideService(Scope.Scope, this.subscriptionScope),
+        Effect.onExit((exit) => (Exit.isFailure(exit) ? Scope.close(this.subscriptionScope, exit) : Effect.void))
+      )
+    )
+    return this.listening
+  }
+
+  private closeSubscriptions(): void {
+    // Port subscriptions return synchronous disposers; teardown remains synchronous with the exit event.
+    const exit = Effect.runSyncExit(Scope.close(this.subscriptionScope, Exit.void))
+    if (Exit.isFailure(exit)) throw failure(exit.cause)
   }
 
   /**
@@ -192,7 +216,9 @@ export class Agent {
    * An already-aborted signal still sends the request before its cancellation notification.
    */
   request: acp.ClientContext["request"] = <T = unknown>(
-    method: string, params?: unknown, options?: acp.SendRequestOptions
+    method: string,
+    params?: unknown,
+    options?: acp.SendRequestOptions
   ): Promise<T> => {
     const signal = options?.cancellationSignal
     if (!this._alive) return Promise.reject(new AgentGoneError(this.agentId, "agent is gone"))
@@ -259,13 +285,11 @@ export class Agent {
   async stop(): Promise<void> {
     if (!this._alive) return
     const exited = this.exited
-    try {
-      await this.port.stop(this.agentId)
-      const agents = await this.port.agents()
-      if (agents.some((agent) => agent.agentId === this.agentId)) await exited
-    } finally {
-      this.gone("agent stopped")
-    }
+    await this.port.stop(this.agentId)
+    const agents = await this.port.agents()
+    if (agents.some((agent) => agent.agentId === this.agentId)) await exited
+    // A failed stop or failed confirmation is not evidence that the process exited.
+    this.gone("agent stopped")
   }
 
   /**
@@ -277,16 +301,14 @@ export class Agent {
   detach(): void {
     if (!this._alive) return
     this._alive = false
-    this.unlisten?.()
-    this.unlisten = null
+    this.closeSubscriptions()
     this.failInflight(new AgentGoneError(this.agentId, "agent detached"))
   }
 
   private gone(reason: string): void {
     const wasAlive = this._alive
     this._alive = false
-    this.unlisten?.()
-    this.unlisten = null
+    this.closeSubscriptions()
     this.failInflight(new AgentGoneError(this.agentId, reason))
     if (!wasAlive) return
     this.resolveExited()
@@ -309,6 +331,7 @@ export class Agents<Launch = unknown, Info extends AttachInfo = AttachInfo> {
   private readonly port: AgentPort<Launch, Info>
   private readonly handshake: Handshake
   private readonly held = new Map<string, Agent>()
+  private readonly adopting = new Map<string, Promise<Agent>>()
   private readonly exitHandlers = new Set<(agent: Agent) => void>()
 
   constructor(port: AgentPort<Launch, Info>, handshake: Handshake) {
@@ -378,13 +401,26 @@ export class Agents<Launch = unknown, Info extends AttachInfo = AttachInfo> {
    * Holds a process the Runtime already runs that no session leads to (a fresh agent after a reload, before its first session): handshake, subscribe,
    * and take it into the held table. `start` and `attach` end here as well.
    */
-  async adopt(agentId: string, engine: string | null): Promise<Agent> {
+  adopt(agentId: string, engine: string | null): Promise<Agent> {
     const existing = this.held.get(agentId)
-    if (existing?.alive) return existing
+    if (existing?.alive) return Promise.resolve(existing)
+    const pending = this.adopting.get(agentId)
+    if (pending) return pending
+    const result = this.acquireAgent(agentId, engine)
+    this.adopting.set(agentId, result)
+    const release = () => {
+      if (this.adopting.get(agentId) === result) this.adopting.delete(agentId)
+    }
+    void result.then(release, release)
+    return result
+  }
+
+  private async acquireAgent(agentId: string, engine: string | null): Promise<Agent> {
     // ACP v2 handshakes once per connection; on takeover the Runtime answers with the cached handshake result, without disturbing the engine
     const initialized = await initialize(this.port, agentId, this.handshake)
     const agent = new Agent(this.port, agentId, engine, initialized)
     await agent.listen()
+    if (!agent.alive) throw new AgentGoneError(agentId, "agent exited during adoption")
     this.held.set(agentId, agent)
     // Synchronous: in the same call stack as the exit event, clear the held table and notify the app; reaping and crash notices must not lag by a microtask
     agent.onGone(() => {

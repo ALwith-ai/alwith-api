@@ -77,3 +77,32 @@ access or rights to separately distributed Rust libraries or Runtime binaries.
 The npm artifact includes compiled/minified JS, declarations, necessary assets,
 and the Rust SDK source under `rust/`. It does not include the private TS/TSX
 implementation or source maps. Minification is not encryption.
+
+### Session lifecycle coordination
+
+`@alwith/api/lifecycle` exports `SessionOperations` and `SessionAdmission`.
+Both expose Promise APIs; Effect is an implementation dependency, not a UI requirement.
+They keep transient coordination state only. The Runtime owns agent processes and
+cross-client ownership; the agent owns the conversation record.
+
+`SessionOperations` orders open, close and delete for an explicit session ID.
+Adjacent opens with the same fingerprint share their result. A close or delete
+signals cancellation to a running open and rejects queued opens, then waits for
+the actual running operation to settle. Already accepted closes and deletes stay
+ordered and are never coalesced. An explicit later open runs after those boundaries.
+An operation failure rejects that caller and does not prevent subsequent explicit
+operations. Idle lanes and their finite workers are released.
+
+`SessionAdmission` orders configuration and prompt preparation. Return a receipt
+Promise inside an object from the dispatch callback (`{ receipt }`), then await
+that receipt outside admission. This releases admission after dispatch rather than
+waiting for a receipt or a whole turn. Use `continueAfterFailure: false` (the third
+argument to `enqueue`) when work depends on a preceding configuration change.
+Cancellation and permission responses do not enter this queue.
+
+Each coordinator accepts `maxPendingPerSession` (default 256) as an explicit
+operational ceiling. Overflow rejects the new operation; it never drops accepted
+mutations. Tune this ceiling to the application's measured workload. Closing an
+operation is not evidence of remote cancellation, and a missing receipt is not
+evidence that a prompt was refused. Callers must fence late receipts against the
+original binding and local insertion before changing session state.
