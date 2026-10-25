@@ -27,3 +27,6 @@ ignorePatterns = [
   "**/node_modules/**",
   "**/target/**",
 ]
+
+[run]
+bun = true

@@ -25,13 +25,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
-      # npm >= 11.5.1 is required for OIDC; the npm bundled with Node 24 satisfies it
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org
       - run: bun install --frozen-lockfile
-      - run: bun run typecheck
+      - run: bun run check:api
       - run: bun test packages scripts/__tests__
       - uses: dtolnay/rust-toolchain@stable
       - name: Test Rust crate from the npm archive
@@ -43,11 +38,11 @@ jobs:
           cargo test --manifest-path "$RUNNER_TEMP/alwith-api-unpacked/package/rust/Cargo.toml" --lib
       - name: The tag must equal the version in package.json
         run: |
-          version=$(node -p "require('./packages/api/package.json').version")
+          version=$(bun -p "require('./packages/api/package.json').version")
           if [ "$GITHUB_REF_NAME" != "v$version" ]; then
             echo "tag $GITHUB_REF_NAME != v$version(packages/api/package.json)"; exit 1
           fi
       # prepack builds the JS dist and the standalone Rust crate; tarball contents are verified by
       # scripts/__tests__.
-      - run: npm publish --access public
+      - run: bun x --bun npm@latest publish --access public
         working-directory: packages/api

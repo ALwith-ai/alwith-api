@@ -7,7 +7,7 @@ import { stageRust } from "./stage-rust"
 // JS implementation stays private; the Rust SDK source is included for Cargo consumers.
 const root = process.cwd()
 const require = createRequire(resolve(root, "package.json"))
-const ts = require("typescript-compiler") as typeof import("typescript-compiler")
+const ts = require("@typescript/typescript6") as typeof import("@typescript/typescript6")
 const src = resolve(root, "src")
 const dist = resolve(root, "dist")
 for (const required of ["LICENSE", "THIRD_PARTY_NOTICES.md"]) {
@@ -48,11 +48,11 @@ if (diagnostics.length)
   )
 
 // Preserve per-file modules (React context identity), and make ESM/Worker paths real.
-const rewrite = (context: import("typescript-compiler").TransformationContext) => {
+const rewrite = (context: import("@typescript/typescript6").TransformationContext) => {
   let sourceFile: string
   const visit = (
-    node: import("typescript-compiler").Node
-  ): import("typescript-compiler").VisitResult<import("typescript-compiler").Node> => {
+    node: import("@typescript/typescript6").Node
+  ): import("@typescript/typescript6").VisitResult<import("@typescript/typescript6").Node> => {
     if (ts.isStringLiteral(node) && node.text.startsWith(".")) {
       const path = resolve(dirname(sourceFile), node.text)
       let value = node.text
@@ -63,7 +63,7 @@ const rewrite = (context: import("typescript-compiler").TransformationContext) =
     }
     return ts.visitEachChild(node, visit, context)
   }
-  return (file: import("typescript-compiler").SourceFile | import("typescript-compiler").Bundle) => {
+  return (file: import("@typescript/typescript6").SourceFile | import("@typescript/typescript6").Bundle) => {
     if (ts.isBundle(file)) throw new Error("Bundle emit is not used; files are emitted one by one")
     sourceFile = file.fileName
     return ts.visitNode(file, visit, ts.isSourceFile)

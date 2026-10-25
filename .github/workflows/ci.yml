@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      - run: bun run typecheck
+      - run: bun run check:api
       - run: bun test packages scripts/__tests__
       - uses: dtolnay/rust-toolchain@stable
       - name: Test Rust crate from the npm archive
