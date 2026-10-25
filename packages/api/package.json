@@ -1,6 +1,6 @@
 {
   "name": "@alwith/api",
-  "version": "0.4.20",
+  "version": "0.4.21",
   "description": "ALwith from the app side: the Runtime client, the agents you hold, and ACP session state",
   "type": "module",
   "main": "./dist/index.js",
