@@ -1,6 +1,6 @@
 {
   "name": "@alwith/api",
-  "version": "0.4.21",
+  "version": "0.4.22",
   "description": "ALwith from the app side: the Runtime client, the agents you hold, and ACP session state",
   "type": "module",
   "main": "./dist/index.js",
@@ -50,6 +50,11 @@
       "types": "./dist/lifecycle/index.d.ts",
       "import": "./dist/lifecycle/index.js",
       "default": "./dist/lifecycle/index.js"
+    },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "import": "./dist/client/index.js",
+      "default": "./dist/client/index.js"
     }
   },
   "files": [
