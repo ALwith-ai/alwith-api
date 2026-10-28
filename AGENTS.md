@@ -32,3 +32,12 @@ compile errors CI could have been spared.
 - Do not run local `npm publish` or ask for per-release npm login / 2FA.
   Change the one-time trust binding only if CI reports an actual trust mismatch.
 - Origin: user instruction (2026-10-22).
+
+## Test Runtime isolation
+
+Scripts that start Runtime/engine sessions, including temporary probes, must use
+`startTestRuntime` from `@alwith/api/node`. Never use the real Codex home as test
+state. Default tests use mocks; only an explicitly authorized live test supplies
+`authFrom` to copy auth.json into the helper's temporary home. Use `await using`
+or await `dispose()` in `finally`. Existing server protocol fixtures that already
+create isolated homes remain valid; they must never fall back to the real home.

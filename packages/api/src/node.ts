@@ -31,7 +31,7 @@ export type ProcessRuntimeOptions = {
   /** `ALWITH_RUNTIME_JOURNAL`; omit for the platform default. */
   journalRoot?: string
   /** Extra environment for the Runtime process. */
-  env?: Record<string, string>
+  env?: Record<string, string | undefined>
   /** Where the Runtime's stderr goes; default inherits this process's stderr. */
   stderr?: "inherit" | "ignore"
 }
@@ -136,3 +136,6 @@ export class ProcessRuntimeClient<Launch = unknown> extends FrameRuntimeClient<L
 function describeExit(exit: ProcessExit): string {
   return exit.signal ? `signal ${exit.signal}` : `code ${exit.code ?? "?"}`
 }
+
+export { startTestRuntime } from "./test-runtime"
+export type { TestRuntimeOptions } from "./test-runtime"

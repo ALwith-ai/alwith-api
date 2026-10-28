@@ -59,3 +59,26 @@ The example above applies to `src-tauri/Cargo.toml`. A root-level Cargo.toml use
 ## License and redistribution
 
 See LICENSE and THIRD_PARTY_NOTICES.md. Migration does not change the license of any existing source.
+
+## Isolated test Runtime
+
+Use `startTestRuntime` from `@alwith/api/node` for test scripts, including temporary
+probes. It owns a private temporary Codex home, workspace, journal and attention
+state for either `stdio` or `ws`. Process, engine and launch environments are fenced
+to that home. It never mutates the caller's environment or original credentials.
+
+```ts
+import { startTestRuntime } from "@alwith/api/node"
+await using runtime = await startTestRuntime({
+  binary: runtimeBinary,
+  engines: { mock: mockEngine },
+  transport: "stdio"
+})
+await runtime.client.start("test", { engine: "mock" })
+```
+
+The default home is empty. Only an explicitly requested live test supplies
+`authFrom: existingCodexHome`, copying **only** auth.json with owner-only permissions.
+The fixture removes the copy and all test state after the process exits, including
+startup failures. Use `try/finally` with `await runtime.dispose()` when the host does
+not support `await using`. Never point a test's CODEX_HOME at the original directory.
