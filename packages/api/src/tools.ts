@@ -1,4 +1,4 @@
-/** Versioned module-owned tools, passed as session/new|resume|fork _meta.alwith.tools. */
+/** Versioned module-owned tool declarations. Protocol adapters encode these for their engine. */
 export interface ClientToolSet {
   version: 1
   /** Persist with the session; restore the same declarations, never silently replace schemas. */

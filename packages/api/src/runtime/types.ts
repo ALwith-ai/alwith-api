@@ -159,7 +159,6 @@ export interface RuntimeSessionResult {
 /** What `prompt` gives back once the turn ends. */
 export interface RuntimePromptResult {
   stopReason: string
-  _meta?: Record<string, unknown>
   [key: string]: unknown
 }
 

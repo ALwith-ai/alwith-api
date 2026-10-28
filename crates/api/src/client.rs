@@ -613,55 +613,50 @@ impl RuntimeClient {
     /// Create a session (handshaking first if needed). Returns the ACP `session/new` result,
     /// containing `sessionId`.
     pub async fn session_new(
-        &self, agent_id: &str, cwd: &str, mcp_servers: Vec<Value>, meta: Option<Value>, owner: Option<&str>,
+        &self, agent_id: &str, cwd: &str, mcp_servers: Vec<Value>, owner: Option<&str>,
     ) -> Result<Value, ResponseError> {
-        let params = Self::with_owner(
-            serde_json::json!({ "agentId": agent_id, "cwd": cwd, "mcpServers": mcp_servers, "meta": meta }),
-            owner,
-        );
+        let params =
+            Self::with_owner(serde_json::json!({ "agentId": agent_id, "cwd": cwd, "mcpServers": mcp_servers }), owner);
         self.request("sessionNew", Some(params)).await
     }
 
     pub async fn session_load(
-        &self, agent_id: &str, session_id: &str, cwd: &str, mcp_servers: Vec<Value>, meta: Option<Value>,
-        owner: Option<&str>,
+        &self, agent_id: &str, session_id: &str, cwd: &str, mcp_servers: Vec<Value>, owner: Option<&str>,
     ) -> Result<Value, ResponseError> {
         let params = Self::with_owner(
-            serde_json::json!({ "agentId": agent_id, "sessionId": session_id, "cwd": cwd, "mcpServers": mcp_servers, "meta": meta }),
+            serde_json::json!({ "agentId": agent_id, "sessionId": session_id, "cwd": cwd, "mcpServers": mcp_servers }),
             owner,
         );
         self.request("sessionLoad", Some(params)).await
     }
 
     pub async fn session_resume(
-        &self, agent_id: &str, session_id: &str, cwd: &str, replay_from: Option<Value>, meta: Option<Value>,
-        owner: Option<&str>,
+        &self, agent_id: &str, session_id: &str, cwd: &str, replay_from: Option<Value>, owner: Option<&str>,
     ) -> Result<Value, ResponseError> {
         let params = Self::with_owner(
-            serde_json::json!({ "agentId": agent_id, "sessionId": session_id, "cwd": cwd, "replayFrom": replay_from, "meta": meta }),
+            serde_json::json!({ "agentId": agent_id, "sessionId": session_id, "cwd": cwd, "replayFrom": replay_from }),
             owner,
         );
         self.request("sessionResume", Some(params)).await
     }
 
     pub async fn session_fork(
-        &self, agent_id: &str, session_id: &str, cwd: &str, mcp_servers: Vec<Value>, meta: Option<Value>,
-        owner: Option<&str>,
+        &self, agent_id: &str, session_id: &str, cwd: &str, mcp_servers: Vec<Value>, owner: Option<&str>,
     ) -> Result<Value, ResponseError> {
         let params = Self::with_owner(
-            serde_json::json!({ "agentId": agent_id, "sessionId": session_id, "cwd": cwd, "mcpServers": mcp_servers, "meta": meta }),
+            serde_json::json!({ "agentId": agent_id, "sessionId": session_id, "cwd": cwd, "mcpServers": mcp_servers }),
             owner,
         );
         self.request("sessionFork", Some(params)).await
     }
 
-    /// One turn, returns only when the turn ends (`{stopReason, _meta}`); progress arrives as
+    /// One turn, returns only when the turn ends (the ACP result); progress arrives as
     /// `AcpNotification` events.
     pub async fn prompt(
-        &self, agent_id: &str, session_id: &str, prompt: Value, meta: Option<Value>, owner: Option<&str>,
+        &self, agent_id: &str, session_id: &str, prompt: Value, owner: Option<&str>,
     ) -> Result<Value, ResponseError> {
         let params = Self::with_owner(
-            serde_json::json!({ "agentId": agent_id, "sessionId": session_id, "prompt": prompt, "meta": meta }),
+            serde_json::json!({ "agentId": agent_id, "sessionId": session_id, "prompt": prompt }),
             owner,
         );
         self.request("prompt", Some(params)).await

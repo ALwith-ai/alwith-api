@@ -75,40 +75,35 @@ export interface RuntimeClient<Launch = unknown> {
     info?: { name: string; version: string },
     capabilities?: Record<string, unknown>
   ): Promise<unknown>
-  /** New session; the first call on an agent also performs the ACP handshake. `meta` becomes `_meta`. */
+  /** New session; the first call on an agent also performs the ACP handshake. */
   sessionNew(
     agentId: string,
     cwd: string,
-    mcpServers?: unknown[],
-    meta?: Record<string, unknown>
+    mcpServers?: unknown[]
   ): Promise<RuntimeSessionResult>
   sessionLoad(
     agentId: string,
     sessionId: string,
     cwd: string,
-    mcpServers?: unknown[],
-    meta?: Record<string, unknown>
+    mcpServers?: unknown[]
   ): Promise<RuntimeSessionResult>
   sessionResume(
     agentId: string,
     sessionId: string,
     cwd: string,
-    replayFrom?: unknown,
-    meta?: Record<string, unknown>
+    replayFrom?: unknown
   ): Promise<RuntimeSessionResult>
   sessionFork(
     agentId: string,
     sessionId: string,
     cwd: string,
-    mcpServers?: unknown[],
-    meta?: Record<string, unknown>
+    mcpServers?: unknown[]
   ): Promise<RuntimeSessionResult>
   /** One turn; resolves when the turn ends. Content arrives through `onAcpNotification` meanwhile. */
   prompt(
     agentId: string,
     sessionId: string,
-    prompt: unknown[],
-    meta?: Record<string, unknown>
+    prompt: unknown[]
   ): Promise<RuntimePromptResult>
   /** Cancel the running turn (`session/cancel`). */
   cancel(agentId: string, sessionId: string): Promise<void>

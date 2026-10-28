@@ -1,7 +1,7 @@
 {
   "name": "@alwith/api",
   "version": "0.5.3",
-  "description": "ALwith from the app side: the Runtime client, the agents you hold, and ACP session state",
+  "description": "Public Runtime transports and application state for ALwith",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -26,16 +26,6 @@
       "import": "./dist/runtime/index.js",
       "default": "./dist/runtime/index.js"
     },
-    "./agent": {
-      "types": "./dist/agent/index.d.ts",
-      "import": "./dist/agent/index.js",
-      "default": "./dist/agent/index.js"
-    },
-    "./session": {
-      "types": "./dist/session/index.d.ts",
-      "import": "./dist/session/index.js",
-      "default": "./dist/session/index.js"
-    },
     "./tauri": {
       "types": "./dist/tauri.d.ts",
       "import": "./dist/tauri.js",
@@ -46,11 +36,6 @@
       "import": "./dist/node.js",
       "default": "./dist/node.js"
     },
-    "./lifecycle": {
-      "types": "./dist/lifecycle/index.d.ts",
-      "import": "./dist/lifecycle/index.js",
-      "default": "./dist/lifecycle/index.js"
-    },
     "./client": {
       "types": "./dist/client/index.d.ts",
       "import": "./dist/client/index.js",
@@ -60,14 +45,12 @@
   "files": [
     "dist",
     "README.md",
-    "SESSION.md",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "licenses",
     "rust"
   ],
   "peerDependencies": {
-    "@agentclientprotocol/sdk": "^2.0.2",
     "@tauri-apps/api": ">=2"
   },
   "peerDependenciesMeta": {
@@ -90,7 +73,5 @@
     "url": "git+https://github.com/ALwith-ai/alwith-api.git",
     "directory": "packages/api"
   },
-  "dependencies": {
-    "effect": "^4.0.6"
-  }
+  "dependencies": {}
 }

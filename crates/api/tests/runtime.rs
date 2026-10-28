@@ -141,7 +141,7 @@ for line in sys.stdin:
             a = json.loads(answer)
             if a.get("id") == 77:
                 emit({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": " there"}}}})
-                emit({"jsonrpc": "2.0", "id": pending, "result": {"stopReason": "end_turn", "_meta": {"answered": a["result"]["outcome"]["optionId"]}}})
+                emit({"jsonrpc": "2.0", "id": pending, "result": {"stopReason": "end_turn", "approval": {"answered": a["result"]["outcome"]["optionId"]}}})
                 break
     elif method == "slow":
         pending = m["id"]
@@ -170,14 +170,14 @@ for line in sys.stdin:
         client.start("a", serde_json::json!({"engine":"fake"}), None).await.unwrap();
 
         // Create a session: Runtime handshakes itself, the app only sees the sessionId.
-        let session = client.session_new("a", "/tmp", vec![], None, None).await.unwrap();
+        let session = client.session_new("a", "/tmp", vec![], None).await.unwrap();
         assert_eq!(session["sessionId"], "s-1");
 
         // One turn: content arrives via acpNotification, the permission request via
         // acpAgentRequest; the turn ends once the app answers.
         let prompter = Arc::clone(&client);
         let turn = tokio::spawn(async move {
-            prompter.prompt("a", "s-1", serde_json::json!([{ "type": "text", "text": "hello" }]), None, None).await
+            prompter.prompt("a", "s-1", serde_json::json!([{ "type": "text", "text": "hello" }]), None).await
         });
         let mut chunks = Vec::new();
         let mut answered = false;
@@ -219,12 +219,12 @@ for line in sys.stdin:
         }
         let result = tokio::time::timeout(std::time::Duration::from_secs(10), turn).await.unwrap().unwrap().unwrap();
         assert_eq!(result["stopReason"], "end_turn");
-        assert_eq!(result["_meta"]["answered"], "ok");
+        assert_eq!(result["approval"]["answered"], "ok");
         assert_eq!(chunks, vec!["hi".to_string(), " there".to_string()]);
         assert!(!inbound_saw_runtime_response);
         // A second session creation does not handshake again: initialize is served from cache (the
         // fake agent would answer a second initialize, but Runtime must not send it).
-        let again = client.session_new("a", "/tmp", vec![], None, None).await.unwrap();
+        let again = client.session_new("a", "/tmp", vec![], None).await.unwrap();
         assert_eq!(again["sessionId"], "s-1");
         // Run state as usual: the prompt Runtime sent on the app's behalf is also accounted for.
         let states = client.run_states().await.unwrap();

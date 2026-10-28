@@ -172,7 +172,7 @@ pub struct AttachInfo {
     pub engine: String,
     /// The agent's most recently confirmed provider (startup config or a successful providers/set).
     /// attach does not spawn,
-    /// so the frontend uses this to mark the current provider (the _meta.alwith.providerId sent
+    /// so the frontend uses this to mark the current provider (the provider identity sent
     /// with every prompt depends on it).
     /// The registry holds no process metadata; filled by `Runtime::attach` (the only public exit).
     pub provider: String,

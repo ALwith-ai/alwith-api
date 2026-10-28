@@ -101,14 +101,14 @@ describe("FrameRuntimeClient", () => {
     const requests: unknown[] = []
     await port.onAcpNotification((n) => notifications.push(n))
     await port.onAcpAgentRequest((r) => requests.push(r))
-    const session = port.sessionNew("a", "/work", [], { alwith: { maxBudgetUsd: 1 } })
+    const session = port.sessionNew("a", "/work", [])
     const turn = port.prompt("a", "s-1", [{ type: "text", text: "hi" }])
     await flush()
     expect(port.written.map((line) => JSON.parse(line) as unknown)).toEqual([
       {
         id: 1,
         method: "sessionNew",
-        params: { agentId: "a", cwd: "/work", mcpServers: [], meta: { alwith: { maxBudgetUsd: 1 } } }
+        params: { agentId: "a", cwd: "/work", mcpServers: [] }
       },
       { id: 2, method: "prompt", params: { agentId: "a", sessionId: "s-1", prompt: [{ type: "text", text: "hi" }] } }
     ])

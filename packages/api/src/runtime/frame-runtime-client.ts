@@ -217,49 +217,44 @@ export abstract class FrameRuntimeClient<Launch = unknown> implements RuntimeCli
   sessionNew(
     agentId: string,
     cwd: string,
-    mcpServers: unknown[] = [],
-    meta?: Record<string, unknown>
+    mcpServers: unknown[] = []
   ): Promise<RuntimeSessionResult> {
-    return this.request("sessionNew", { agentId, cwd, mcpServers, meta })
+    return this.request("sessionNew", { agentId, cwd, mcpServers })
   }
 
   sessionLoad(
     agentId: string,
     sessionId: string,
     cwd: string,
-    mcpServers: unknown[] = [],
-    meta?: Record<string, unknown>
+    mcpServers: unknown[] = []
   ): Promise<RuntimeSessionResult> {
-    return this.request("sessionLoad", { agentId, sessionId, cwd, mcpServers, meta })
+    return this.request("sessionLoad", { agentId, sessionId, cwd, mcpServers })
   }
 
   sessionResume(
     agentId: string,
     sessionId: string,
     cwd: string,
-    replayFrom?: unknown,
-    meta?: Record<string, unknown>
+    replayFrom?: unknown
   ): Promise<RuntimeSessionResult> {
-    return this.request("sessionResume", { agentId, sessionId, cwd, replayFrom, meta })
+    return this.request("sessionResume", { agentId, sessionId, cwd, replayFrom })
   }
 
   sessionFork(
     agentId: string,
     sessionId: string,
     cwd: string,
-    mcpServers: unknown[] = [],
-    meta?: Record<string, unknown>
+    mcpServers: unknown[] = []
   ): Promise<RuntimeSessionResult> {
-    return this.request("sessionFork", { agentId, sessionId, cwd, mcpServers, meta })
+    return this.request("sessionFork", { agentId, sessionId, cwd, mcpServers })
   }
 
   prompt(
     agentId: string,
     sessionId: string,
-    prompt: unknown[],
-    meta?: Record<string, unknown>
+    prompt: unknown[]
   ): Promise<RuntimePromptResult> {
-    return this.request("prompt", { agentId, sessionId, prompt, meta })
+    return this.request("prompt", { agentId, sessionId, prompt })
   }
 
   async cancel(agentId: string, sessionId: string): Promise<void> {

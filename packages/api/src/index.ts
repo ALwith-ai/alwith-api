@@ -1,5 +1,2 @@
-// `@alwith/api`: one package, three things: connect to the Runtime (`./runtime`), hold agents (`./agent`),
-// and session state (`./session`). Environment-bound transports live in `@alwith/api/tauri` and `@alwith/api/node`.
+// Public Runtime transport and state; ACP projection belongs to the engine adapter.
 export * from "./runtime"
-export * from "./agent"
-export * from "./session"
