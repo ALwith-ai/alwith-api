@@ -150,3 +150,12 @@ rejects overflow rather than returning partial success, and fences old creation
 responses on disconnect. The `Agents` registry remains the sole process-binding
 registry; its Effect scopes release connection subscriptions. Session retirement
 never stops a sibling session's shared Agent process.
+
+## Observing Runtime run states
+
+`observeRunStates(port, apply)` subscribes before requesting the initial snapshot.
+The callback receives `(sessions, "event" | "snapshot")`; a snapshot that arrives
+after a newer event is discarded. Await the returned `ready` promise to observe
+setup failures and call `dispose()` when the connection owner is replaced or
+unmounted. Disposal also handles a subscription that finishes registering late.
+The helper only manages observation; Runtime still owns status and read acknowledgement.
