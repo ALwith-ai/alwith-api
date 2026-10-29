@@ -11,7 +11,7 @@
     "check:api": "bun check --no-script -p packages/api"
   },
   "devDependencies": {
-    "@agentclientprotocol/sdk": "^2.0.2",
+    "@agentclientprotocol/sdk": "^2.1.0",
     "@nyssance/ts7-lint": "^0.1.3",
     "@tauri-apps/api": "^2.12.4",
     "@types/bun": "^1.4.4",
