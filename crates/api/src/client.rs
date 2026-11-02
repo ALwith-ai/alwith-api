@@ -261,7 +261,13 @@ impl Shared {
         loop {
             let params = serde_json::json!({ "sessionId": session_id, "afterSequence": after, "limit": REFILL_PAGE });
             let frames: Vec<SessionEventFrame> = match self.request("sessionEvents", params).await {
-                Ok(value) => serde_json::from_value(value).unwrap_or_default(),
+                Ok(value) => match serde_json::from_value(value) {
+                    Ok(frames) => frames,
+                    Err(error) => {
+                        log::error!("[alwith-api] sessionEvents for {session_id}: unreadable page: {error}");
+                        break;
+                    }
+                },
                 // Connection gone: the reconnect path will refill again; deliver what has
                 // accumulated first.
                 Err(_) => break,
@@ -356,10 +362,7 @@ impl RuntimeClient {
             if reader.read_line(&mut first).await? == 0 {
                 return Err(std::io::Error::other("alwith-runtime closed stdout before ready"));
             }
-            let value: Value = match serde_json::from_str(first.trim()) {
-                Ok(value) => value,
-                Err(_) => continue,
-            };
+            let Ok(value) = serde_json::from_str::<Value>(first.trim()) else { continue };
             if value.get("type").and_then(Value::as_str) == Some("ready") {
                 break;
             }
