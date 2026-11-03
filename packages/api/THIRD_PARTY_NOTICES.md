@@ -1,6 +1,6 @@
 # Third-party notices — @alwith/api
 
-ALwith's proprietary license applies only to its own material. Third-party
+The MIT OR Apache-2.0 license of this package applies only to ALwith's own material. Third-party
 material retains its original license and rights; the package license does not
 replace or restrict those rights. Preserve applicable notices when redistributing.
 

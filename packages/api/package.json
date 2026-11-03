@@ -45,7 +45,8 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE",
+    "LICENSE-MIT",
+    "LICENSE-APACHE",
     "THIRD_PARTY_NOTICES.md",
     "licenses",
     "rust"
@@ -63,7 +64,7 @@
     "build": "bun ../../scripts/build-npm.ts",
     "prepack": "bun run build"
   },
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "MIT OR Apache-2.0",
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"

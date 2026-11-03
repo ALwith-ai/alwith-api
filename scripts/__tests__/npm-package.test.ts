@@ -15,7 +15,10 @@ test("published archive contains the standalone Rust crate and JS exports, witho
   })
   const files = execFileSync("tar", ["-tzf", archive], { encoding: "utf8" }).trim().split("\n")
   expect(files).toContain("package/rust/Cargo.toml")
-  expect(files).toContain("package/rust/LICENSE")
+  for (const file of ["LICENSE-MIT", "LICENSE-APACHE"]) {
+    expect(files).toContain(`package/${file}`)
+    expect(files).toContain(`package/rust/${file}`)
+  }
   expect(files).toContain("package/dist/index.js")
   expect(files).toContain("package/dist/index.d.ts")
   expect(files.filter((file) => file.endsWith(".map") || (/\.tsx?$/.test(file) && !file.endsWith(".d.ts")))).toEqual([])

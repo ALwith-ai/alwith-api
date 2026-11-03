@@ -4,11 +4,13 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
 const root = resolve(import.meta.dirname, "../..")
+const LICENSES = ["LICENSE-MIT", "LICENSE-APACHE"]
 
 test("npm Rust crate preserves sources and resolves workspace metadata without the source repository", () => {
   const directory = mkdtempSync(join(tmpdir(), "alwith-rust-package-"))
   const output = join(directory, "package")
-  cpSync(join(root, "packages/api/LICENSE"), join(output, "LICENSE"))
+  mkdirSync(output, { recursive: true })
+  for (const file of LICENSES) cpSync(join(root, "packages/api", file), join(output, file))
   mkdirSync(join(output, "rust/src"), { recursive: true })
   writeFileSync(join(output, "rust/src/removed.rs"), "stale source")
   const result = Bun.spawnSync([process.execPath, join(root, "scripts/stage-rust.ts"), output], {
@@ -27,8 +29,9 @@ test("npm Rust crate preserves sources and resolves workspace metadata without t
   expect(manifest.package.version).toBe(workspace.workspace.package.version)
   expect(manifest.package.edition).toBe(workspace.workspace.package.edition)
   expect(manifest.package.repository).toBe(workspace.workspace.package.repository)
-  expect(manifest.package["license-file"]).toBe("LICENSE")
-  expect(readFileSync(join(output, "rust/LICENSE"), "utf8")).toBe(readFileSync(join(output, "LICENSE"), "utf8"))
+  expect(manifest.package.license).toBe("MIT OR Apache-2.0")
+  for (const file of LICENSES)
+    expect(readFileSync(join(output, "rust", file), "utf8")).toBe(readFileSync(join(output, file), "utf8"))
   expect(manifest).not.toHaveProperty("workspace")
   for (const file of ["src/lib.rs", "src/client.rs", "src/process.rs", "src/protocol.rs", "tests/runtime.rs"]) {
     expect(readFileSync(join(output, "rust", file), "utf8")).toBe(readFileSync(join(root, "crates/api", file), "utf8"))

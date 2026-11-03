@@ -21,14 +21,13 @@ export function stageRust(packageRoot: string): void {
       manifest.package[field] = inherited
     }
   }
-  manifest.package["license-file"] = "LICENSE"
   const output = join(packageRoot, "rust")
   // This directory is generated exclusively by this script; never retain stale source files.
   rmSync(output, { recursive: true, force: true })
   mkdirSync(output, { recursive: true })
   cpSync(join(source, "src"), join(output, "src"), { recursive: true })
   cpSync(join(source, "tests"), join(output, "tests"), { recursive: true })
-  cpSync(join(packageRoot, "LICENSE"), join(output, "LICENSE"))
+  for (const file of ["LICENSE-MIT", "LICENSE-APACHE"]) cpSync(join(packageRoot, file), join(output, file))
   const serialized = Bun.TOML.stringify(manifest)
   if (serialized === undefined) throw new Error("Failed to serialize the standalone Rust manifest")
   writeFileSync(join(output, "Cargo.toml"), serialized)

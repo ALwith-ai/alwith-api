@@ -8,7 +8,7 @@ import { stageRust } from "./stage-rust"
 const root = process.cwd()
 const src = resolve(root, "src")
 const dist = resolve(root, "dist")
-for (const required of ["LICENSE", "THIRD_PARTY_NOTICES.md"]) {
+for (const required of ["LICENSE-MIT", "LICENSE-APACHE", "THIRD_PARTY_NOTICES.md"]) {
   if (!existsSync(resolve(root, required))) throw new Error(`Missing distribution notice: ${required}`)
 }
 if (!existsSync(resolve(root, "tsconfig.json")) || !existsSync(src)) throw new Error("Run in an ALwith TS package")

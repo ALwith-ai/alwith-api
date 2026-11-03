@@ -46,19 +46,19 @@ The basic Runtime convenience methods accept only their standard arguments.
 
 ## Rust SDK
 
-Since 0.1.4, `rust/` inside the package is a Cargo crate that can be embedded in a consumer's workspace, containing the protocol types, the Runtime client and process helpers. Install this package with Bun first, then configure a `path` relative to Cargo.toml:
+The Rust SDK is the `alwith-api` crate on crates.io, versioned with this package: the protocol types, the Runtime client and process helpers.
 
 ```toml
 [dependencies]
-alwith-api = { path = "../node_modules/@alwith/api/rust", features = ["client"] }
+alwith-api = { version = "0.6", features = ["client"] }
 ```
 
-The example above applies to `src-tauri/Cargo.toml`. A root-level Cargo.toml uses `node_modules/@alwith/api/rust`. Use `default-features = false` if you only need the types. This crate is compiled on the consumer side and does not depend on an upstream Git checkout.
+Use `default-features = false` if you only need the types.
 
 
 ## License and redistribution
 
-See LICENSE and THIRD_PARTY_NOTICES.md. Migration does not change the license of any existing source.
+Licensed under either of MIT (LICENSE-MIT) or Apache-2.0 (LICENSE-APACHE) at your option; third-party notices are in THIRD_PARTY_NOTICES.md. Versions published before 0.6.0 keep the license they were released under.
 
 ## Isolated test Runtime
 
