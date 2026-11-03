@@ -5,7 +5,7 @@ version.workspace = true
 edition.workspace = true
 repository.workspace = true
 license = "MIT OR Apache-2.0"
-include = ["Cargo.toml", "src/**/*.rs", "tests/**/*.rs", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["/Cargo.toml", "src/**/*.rs", "tests/**/*.rs", "/LICENSE-MIT", "/LICENSE-APACHE"]
 
 [features]
 default = ["client"]
