@@ -3,6 +3,6 @@ resolver = "3"
 members = ["crates/api"]
 
 [workspace.package]
-version = "0.1.8"
+version = "0.6.0"
 edition = "2024"
 repository = "https://github.com/nyssance/alwith-api"
