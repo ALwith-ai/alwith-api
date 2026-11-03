@@ -4,6 +4,8 @@ description = "ALwith from the app side: types of the alwith-runtime-v1 frame pr
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
+license-file = "LICENSE"
+include = ["Cargo.toml", "src/**/*.rs", "tests/**/*.rs", "LICENSE"]
 
 [features]
 default = ["client"]
