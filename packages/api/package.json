@@ -1,6 +1,6 @@
 {
   "name": "@alwith/api",
-  "version": "0.5.4",
+  "version": "0.6.0",
   "description": "Public Runtime transports and application state for ALwith",
   "type": "module",
   "main": "./dist/index.js",
