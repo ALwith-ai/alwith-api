@@ -12,7 +12,7 @@
     },
     "packages/api": {
       "name": "@alwith/api",
-      "version": "0.5.4",
+      "version": "0.6.1",
       "peerDependencies": {
         "@tauri-apps/api": ">=2",
       },
