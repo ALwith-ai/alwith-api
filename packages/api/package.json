@@ -76,6 +76,6 @@
   },
   "dependencies": {},
   "devDependencies": {
-    "@nyssance/tsconfig": "^0.1.0"
+    "@nyssance/tsconfig": "^0.1.2"
   }
 }
