@@ -1,11 +1,6 @@
 {
+  "extends": "@nyssance/tsconfig",
   "compilerOptions": {
-    "target": "ES2023",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "strict": true,
-    "noEmit": true,
-    "skipLibCheck": true,
     "types": ["bun"]
   },
   "include": ["src"]

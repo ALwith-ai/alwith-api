@@ -5,12 +5,13 @@ import type { Readable, Writable } from "node:stream"
 import { FrameRuntimeClient } from "./runtime/frame-runtime-client"
 
 export class ModuleRequestError extends Error {
-  constructor(
-    readonly code: number,
-    message: string,
-    readonly data?: unknown
-  ) {
+  readonly code: number
+  readonly data?: unknown
+
+  constructor(code: number, message: string, data?: unknown) {
     super(message)
+    this.code = code
+    this.data = data
   }
 }
 
@@ -29,8 +30,11 @@ export class ModuleRuntimeClient<Launch = unknown> extends FrameRuntimeClient<La
   private readonly lifetime = new AbortController()
   private readonly incoming = new Map<number, AbortController>()
 
-  constructor(private readonly options: ModuleRuntimeOptions) {
+  private readonly options: ModuleRuntimeOptions
+
+  constructor(options: ModuleRuntimeOptions) {
     super()
+    this.options = options
     this.lines = createInterface({ input: options.input, crlfDelay: Infinity })
     this.lines.on("line", (line) => this.accept(line))
     this.lines.once("close", () => this.close(new Error("Runtime module input closed")))

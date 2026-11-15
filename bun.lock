@@ -13,6 +13,9 @@
     "packages/api": {
       "name": "@alwith/api",
       "version": "0.6.1",
+      "devDependencies": {
+        "@nyssance/tsconfig": "^0.1.0",
+      },
       "peerDependencies": {
         "@tauri-apps/api": ">=2",
       },
@@ -23,6 +26,8 @@
   },
   "packages": {
     "@alwith/api": ["@alwith/api@workspace:packages/api"],
+
+    "@nyssance/tsconfig": ["@nyssance/tsconfig@0.1.0", "", {}, "sha512-tLXTdPG1MehZI0kc3ZA37KYLp9az9ktUI/SKMjO+DHdqlgzsY2yHcSIG0yE8c2nfjqD0bb8ulOLqJkun1IKxTQ=="],
 
     "@tauri-apps/api": ["@tauri-apps/api@2.12.4", "", {}, "sha512-pVmfis+4zT8H0Qhp3xPZx9Ju7kpzvA6rr/PSJPyuwfvucTQ8sVt61NYU9KMkK703UFlYadFmjKA4HhybOtN0gg=="],
 

@@ -74,5 +74,8 @@
     "url": "git+https://github.com/ALwith-ai/alwith-api.git",
     "directory": "packages/api"
   },
-  "dependencies": {}
+  "dependencies": {},
+  "devDependencies": {
+    "@nyssance/tsconfig": "^0.1.0"
+  }
 }

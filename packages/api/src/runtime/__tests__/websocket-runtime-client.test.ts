@@ -14,10 +14,10 @@ class MemoryWebSocket {
   readyState = 0
   private readonly listeners = new Map<string, Set<Listener>>()
 
-  constructor(
-    readonly url: string,
-    protocols: string[]
-  ) {
+  readonly url: string
+
+  constructor(url: string, protocols: string[]) {
+    this.url = url
     this.protocols = protocols
     MemoryWebSocket.instance = this
     MemoryWebSocket.instances.push(this)

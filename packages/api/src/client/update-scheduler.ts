@@ -9,7 +9,11 @@ export class UpdateScheduler<Snapshot> {
   private readonly pending = new Map<string, Snapshot>()
   private timer: ReturnType<typeof setTimeout> | null = null
 
-  constructor(private readonly publish: (snapshots: Readonly<Record<string, Snapshot>>) => void) {}
+  private readonly publish: (snapshots: Readonly<Record<string, Snapshot>>) => void
+
+  constructor(publish: (snapshots: Readonly<Record<string, Snapshot>>) => void) {
+    this.publish = publish
+  }
 
   /** Replaces a session's pending snapshot without postponing the current deadline. */
   enqueue(sessionId: string, snapshot: Snapshot): void {
