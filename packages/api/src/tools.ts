@@ -1,8 +1,6 @@
 /** Versioned module-owned tool declarations. Protocol adapters encode these for their engine. */
 export interface ClientToolSet {
   version: 1
-  /** Persist with the session; restore the same declarations, never silently replace schemas. */
-  revision: string
   definitions: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>
 }
 
@@ -12,7 +10,6 @@ export interface ClientToolCall {
   toolCallId: string
   name: string
   arguments: unknown
-  toolSetRevision: string
 }
 
 export interface ClientToolResult {
