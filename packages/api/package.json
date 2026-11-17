@@ -1,16 +1,11 @@
 {
   "name": "@alwith/api",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "Public Runtime transports and application state for ALwith",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    "./tools": {
-      "types": "./dist/tools.d.ts",
-      "import": "./dist/tools.js",
-      "default": "./dist/tools.js"
-    },
     "./module": {
       "types": "./dist/module.d.ts",
       "import": "./dist/module.js",
