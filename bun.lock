@@ -5,14 +5,14 @@
     "": {
       "name": "alwith-packages",
       "devDependencies": {
-        "@tauri-apps/api": "^2.12.4",
+        "@tauri-apps/api": "^2.12.5",
         "@types/bun": "^1.4.4",
         "typescript": "^7.0.2",
       },
     },
     "packages/api": {
       "name": "@alwith/api",
-      "version": "0.6.1",
+      "version": "0.6.3",
       "devDependencies": {
         "@nyssance/tsconfig": "^0.1.2",
       },
@@ -29,7 +29,7 @@
 
     "@nyssance/tsconfig": ["@nyssance/tsconfig@0.1.2", "", {}, "sha512-BQ0PzHmJEQJQ0oQ+2sVEAsxzz5LEcq3kPKVcXMg1JJxt219C24wQab6z9FuC/JJzyM6XIQQpYLNU3UhvNL3hfA=="],
 
-    "@tauri-apps/api": ["@tauri-apps/api@2.12.4", "", {}, "sha512-pVmfis+4zT8H0Qhp3xPZx9Ju7kpzvA6rr/PSJPyuwfvucTQ8sVt61NYU9KMkK703UFlYadFmjKA4HhybOtN0gg=="],
+    "@tauri-apps/api": ["@tauri-apps/api@2.12.5", "", {}, "sha512-G9QIMt5fzED+aS4QhVK3w1HWLKpLIwH/MnpCr9z1ugGEHnS2ORmqrLkc0uALOjRK4qXJy+4Yiw8LDl/KicC1Hg=="],
 
     "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 

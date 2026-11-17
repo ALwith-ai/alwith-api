@@ -11,7 +11,7 @@
     "check:api": "bun check --no-script -p packages/api"
   },
   "devDependencies": {
-    "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/api": "^2.12.5",
     "@types/bun": "^1.4.4",
     "typescript": "^7.0.2"
   }
