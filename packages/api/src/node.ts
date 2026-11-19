@@ -2,6 +2,7 @@
 // and speak frames over its pipes. This is what a headless host (a connector, a script, a
 // module written in TypeScript) uses; a Tauri app uses the `./tauri` port instead.
 import { type ChildProcess, spawn } from "node:child_process"
+import { readFileSync } from "node:fs"
 import { createInterface } from "node:readline"
 
 import { FrameRuntimeClient } from "./runtime/frame-runtime-client"
@@ -21,6 +22,26 @@ export type RuntimeEngineSpec = {
   args?: string[]
   env?: Record<string, string>
   providerAdapter?: ProviderAdapter
+}
+
+/**
+ * Reads the manifest staged with an engine and replaces every `${name}` in its strings with the path of
+ * that name. Whoever packages the engine knows how it starts; the host only supplies where the files are.
+ */
+export function engineFromManifest(manifest: string, paths: Record<string, string>): RuntimeEngineSpec {
+  const resolve = (value: unknown): unknown => {
+    if (typeof value === "string") {
+      const resolved = Object.entries(paths).reduce((text, [name, path]) => text.replaceAll(`\${${name}}`, path), value)
+      if (resolved.includes("${"))
+        throw new Error(`engine manifest ${manifest} names a path the host did not supply: ${resolved}`)
+      return resolved
+    }
+    if (Array.isArray(value)) return value.map(resolve)
+    if (typeof value === "object" && value !== null)
+      return Object.fromEntries(Object.entries(value).map(([key, field]) => [key, resolve(field)]))
+    return value
+  }
+  return resolve(JSON.parse(readFileSync(manifest, "utf8"))) as RuntimeEngineSpec
 }
 
 export type ProcessRuntimeOptions = {

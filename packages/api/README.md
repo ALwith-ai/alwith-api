@@ -7,7 +7,7 @@ For Codex, import those capabilities from `@nyssance/codex-acp-v2/client`.
 | Entry | Contents |
 | --- | --- |
 | `@alwith/api` or `/runtime` | Runtime transport types, WebSocketRuntimeClient, run-state observation |
-| `/node` | ProcessRuntimeClient, spawning the managed Runtime |
+| `/node` | ProcessRuntimeClient, spawning the managed Runtime; `engineFromManifest`, an engine entry read from the manifest staged with the engine |
 | `/tauri` | TauriRuntimeClient, connecting to the host relay |
 | `/client` | Generic createStore and UpdateScheduler |
 | `/module` | Module transport |

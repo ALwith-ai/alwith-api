@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
-import { ProcessRuntimeClient } from "../node"
+import { engineFromManifest, ProcessRuntimeClient } from "../node"
 
 const root = resolve(import.meta.dirname, "../../../..")
 const candidates = [
@@ -12,6 +12,42 @@ const candidates = [
   join(root, "src-tauri/binaries", `alwith-runtime-${process.arch === "arm64" ? "aarch64" : "x86_64"}-apple-darwin`)
 ]
 const binary = candidates.find(existsSync)
+
+describe("engineFromManifest", () => {
+  const manifest = (contents: string) => {
+    const path = join(mkdtempSync(join(tmpdir(), "engine-manifest-")), "engine.json")
+    writeFileSync(path, contents)
+    return path
+  }
+
+  test("every placeholder becomes the supplied path", () => {
+    const path = manifest(
+      JSON.stringify({
+        command: "${bun}",
+        args: ["--no-install", "${adapter}"],
+        env: { CODEX_PATH: "${codex}", CODEX_CONFIG: '{"features":{}}' }
+      })
+    )
+    expect(
+      engineFromManifest(path, {
+        bun: "C:\\Program Files\\App\\bun.exe",
+        adapter: "/app/adapter.mjs",
+        codex: "/app/codex"
+      })
+    ).toEqual({
+      command: "C:\\Program Files\\App\\bun.exe",
+      args: ["--no-install", "/app/adapter.mjs"],
+      env: { CODEX_PATH: "/app/codex", CODEX_CONFIG: '{"features":{}}' }
+    })
+  })
+
+  test("a path the host did not supply is an error", () => {
+    const path = manifest(JSON.stringify({ command: "${bun}", env: { CODEX_PATH: "${codex}" } }))
+    expect(() => engineFromManifest(path, { bun: "/app/bun" })).toThrow(
+      "names a path the host did not supply: ${codex}"
+    )
+  })
+})
 
 describe.skipIf(!binary)("ProcessRuntimeClient", () => {
   test("spawns alwith-runtime over stdio, answers requests, forwards agent events", async () => {

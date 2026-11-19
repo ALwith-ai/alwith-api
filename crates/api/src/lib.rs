@@ -6,6 +6,9 @@
 mod protocol;
 pub use protocol::*;
 
+mod engine;
+pub use engine::{EngineManifestError, engine_from_manifest};
+
 #[cfg(feature = "client")]
 mod client;
 #[cfg(feature = "client")]
