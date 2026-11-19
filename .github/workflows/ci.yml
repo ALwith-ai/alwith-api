@@ -27,9 +27,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.5
       - run: bun install --frozen-lockfile
       - run: bun run check:api
-      - run: bun test packages scripts/__tests__
+      - run: bun run test
       - uses: dtolnay/rust-toolchain@stable
       - name: Test Rust crate from the npm archive
         working-directory: packages/api

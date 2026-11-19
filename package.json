@@ -5,7 +5,7 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "bun test packages",
+    "test": "bun test --parallel ./packages ./scripts/__tests__",
     "format:rust": "cargo fmt --all",
     "format:all": "bun run format:rust && bun fmt",
     "check:api": "bun check --no-script -p packages/api"
