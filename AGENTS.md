@@ -41,3 +41,9 @@ state. Default tests use mocks; only an explicitly authorized live test supplies
 `authFrom` to copy auth.json into the helper's temporary home. Use `await using`
 or await `dispose()` in `finally`. Existing server protocol fixtures that already
 create isolated homes remain valid; they must never fall back to the real home.
+
+## Rust formatting: stable only, never nightly
+
+- Format Rust with stable `cargo fmt` only. `rustfmt.toml` keeps options that only nightly applies; on stable they are ignored with a warning, which is known and accepted.
+- Never run `cargo +nightly`, `rustfmt +nightly` or `rustup toolchain install nightly`, and never install a nightly toolchain to make those warnings go away.
+- Origin: user instruction (2026-07-25 in alwith-desktop; repeated here 2026-11-25 after a session auto-installed nightly through `cargo +nightly fmt`).
